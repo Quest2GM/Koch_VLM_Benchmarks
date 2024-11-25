@@ -6,18 +6,13 @@ import subprocess
 import cv2
 import time
 import numpy as np
-from PIL import Image as PILImage
 from pynput import keyboard
 from roboticstoolbox import DHRobot, RevoluteDH
 
-# ROS imports
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Image, CameraInfo
-from cv_bridge import CvBridge
-import threading
-import rclpy
-from rclpy.executors import SingleThreadedExecutor
+import pyzed.sl as sl
+
+import warnings
+warnings.filterwarnings("ignore")
 
 
 class KochRobot:
@@ -53,8 +48,10 @@ class KochRobot:
         ALPHA = [-self.PI/2, 0, 0, self.PI/2, 0]
         D = [self.d1, 0, 0, 0, self.d5]
         OFFSET = [0, 0, 0, self.PI/2, 0]
+        self.LLIM = [[1,30], [-20, 20], []]
         QLIM = [[-self.PI/2, self.PI/2], [0, self.PI/2], [-self.PI/2, self.PI/2],\
                 [-self.PI/2, self.PI/2], [-self.PI, self.PI]]
+        
         self.robot_dh = DHRobot([RevoluteDH(a=A[i], 
                                             alpha=ALPHA[i], 
                                             d=D[i], 
@@ -62,6 +59,7 @@ class KochRobot:
                                             qlim=QLIM[i]) for i in range(len(A))])
 
         self.robot.connect()
+        print("Robot connected!")
 
         if torque:
             self.robot.follower_arms["main"].write("Torque_Enable", TorqueMode.ENABLED.value)
@@ -97,7 +95,11 @@ class KochRobot:
         
         return target_position
 
-    
+
+    def verify_inv(self, q):
+        return not np.isnan(q).any()
+
+
     def inv_kin(self, target_position):
 
         px, py, pz = target_position
@@ -129,33 +131,41 @@ class KochRobot:
         q = q / (2*self.PI) * 360
         self.robot.follower_arms["main"].write("Goal_Position", q)
 
+
     def manual_control(self):
         
         curr_position = self.read_pos(iters=1)
+        positions = []
         print("Current Position:", curr_position)
-        exit_flag = False
 
         def on_press(key):
-            global exit_flag, curr_position
-            keys = ["q", "w", "e", "a", "s", "d"]
+            nonlocal positions
+
+            keys = ["1", "3", "5", "2", "4", "6"]
             axis = [0, 1, 2, 0, 1, 2]
-            actions = [0.05, 0.05, 0.05, -0.05, -0.05, -0.05]
+            m = 0.1
+            actions = [m, m, m, -m, -m, -m]
 
-            if key.char == "x":
-                exit_flag = True
-            elif key.char in keys:
-                i = keys.index(key.char)
-                curr_position[axis[i]] += actions[i]
-                print("Position:", curr_position)
-                inv_kin = self.inv_kin(curr_position)
-                self.write_pos(inv_kin)
+            if hasattr(key, 'char'):
+                if key.char == "x":
+                    listener.stop()
+                    return
+                elif key.char in keys:
+                    i = keys.index(key.char)
+                    curr_position[axis[i]] += actions[i]
+                    print("Position:", curr_position)
+                    inv_kin = self.inv_kin(curr_position)
+                    if self.verify_inv(inv_kin):
+                        self.write_pos(inv_kin)
+                        positions += [curr_position]
+                    else:
+                        print("Reached limit!")
+                        curr_position[axis[i]] -= actions[i]
 
-        # Start the listener
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
-        while not exit_flag:
-            pass
-        listener.stop()
+        print("Axis Controls: 2<-x->1 , 4<-y->3, 6<-z->5")
+        with keyboard.Listener(on_press=on_press) as listener:
+            listener.join()
+
 
     def camera_calibration(self, cam_node):
         
@@ -182,7 +192,7 @@ class KochRobot:
             time.sleep(1)   # wait before capturing picture
 
             # Show image to determine EE coordinates
-            cv2.imshow("robot_img", cam_node.curr_img)
+            cv2.imshow("robot_img", cam_node.capture_image())
             cv2.waitKey(0)
 
             # TODO: Need to find some way to automate this
@@ -201,105 +211,81 @@ class KochRobot:
 
 
     def exit(self):
+        input("Press return to deactivate robot...")
         self.robot.follower_arms["main"].write("Torque_Enable", TorqueMode.DISABLED.value)
         self.robot.disconnect()
 
 
 
-class CameraNode(Node):
+class ZEDCamera:
 
     def __init__(self):
-        super().__init__('camera_node')
+        self.zed = sl.Camera()
+        init_params = sl.InitParameters()
+        init_params.camera_resolution = sl.RESOLUTION.HD720  # Set resolution to HD720
+        init_params.camera_fps = 30  # Set FPS to 30
 
-        # Create a subscriber on the input topic
-        self.create_subscription(
-            Image,
-            # '/zed/zed_node/depth/depth_registered',
-            '/zed/zed_node/rgb/image_rect_color',
-            self.img_callback,
-            10
-        )
+        self.image_zed = sl.Mat(camera_info.camera_configuration.resolution.width, 
+                                camera_info.camera_configuration.resolution.height, 
+                                sl.MAT_TYPE.U8_C4)
+        camera_info = self.zed.get_camera_information()
+        calib_params = camera_info.camera_configuration.calibration_parameters
+        self.left_cam_params = calib_params.left_cam
 
-        self.create_subscription(
-            CameraInfo,
-            '/camera_info',
-            self.info_callback,
-            10
-        )
-
-        self.curr_img = []
-        self.K = []
-
-    def img_callback(self, msg):
-
-        # Handle different encoding formats
-        if msg.encoding == 'rgb8':
-            image_array = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
-        elif msg.encoding == 'mono8':
-            image_array = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width))
-        elif msg.encoding == 'bgra8':
-            image_array = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 4))
-            image_array = image_array[:, :, :3][:, :, ::-1]  # Convert BGRA to RGB
-        elif msg.encoding == '32FC1':
-            bridge = CvBridge()
-            cv2_img = bridge.imgmsg_to_cv2(msg, '32FC1')
-            image_array = cv2.cvtColor(cv2_img, cv2.COLOR_GRAY2RGB)
-            image_array[image_array > 255] = 0
-            image_array = image_array.astype("float32")
-            image_array = np.nan_to_num(image_array, nan=0.0)
-            image_array = image_array * (255 / np.max(image_array))
-            image_array = image_array.astype("uint8")
-        else:
-            self.get_logger().error(f"Unsupported encoding: {msg.encoding}")
-            return
-
-        # Convert to PIL Image and save
-        pil_image = PILImage.fromarray(image_array)
-        if msg.encoding == 'mono8' or msg.encoding == '32FC1':
-            pil_image = pil_image.convert("L")  # Grayscale
-        elif msg.encoding in ['rgb8', 'bgra8']:
-            pil_image = pil_image.convert("RGB")  # RGB
-
-        self.curr_img = np.array(pil_image).astype("uint8")
+        self.K = self.get_K()
+        self.D = self.get_D()
 
 
-    def info_callback(self, data):
-        self.K = np.array(data).reshape(3,3)
+    def get_K(self):
+        K = np.array([
+            [self.left_cam_params.fx, 0, self.left_cam_params.cx],
+            [0, self.left_cam_params.fy, self.left_cam_params.cy],
+            [0, 0, 1]
+        ])
+        return K
+    
 
-    def wait_for_message(self):
-        print("waiting for image to be published...")
-        while len(self.curr_img) == 0 or len(self.K) == 0:
-            continue
-        print("publish detected!")
+    def get_D(self):
+        D = np.array([
+            self.left_cam_params.disto[0],  # k1
+            self.left_cam_params.disto[1],  # k2
+            self.left_cam_params.disto[4],  # k3
+            self.left_cam_params.disto[2],  # p1 (tangential distortion)
+            self.left_cam_params.disto[3],  # p2 (tangential distortion)
+        ])
+        return D
+    
+    def capture_image(self):
+
+        if self.zed.grab() == sl.ERROR_CODE.SUCCESS:
+            self.zed.retrieve_image(self.image_zed, sl.VIEW.LEFT)
+            image_ocv = self.image_zed.get_data()
+            image_rgb = cv2.cvtColor(image_ocv, cv2.COLOR_RGBA2RGB)
+
+        return image_rgb
 
 
 if __name__ == "__main__":
 
     PORT = "/dev/ttyACM0"
-    ENABLE_TORQUE = False
+    ENABLE_TORQUE = True
 
     koch_robot = KochRobot(port=PORT, torque=ENABLE_TORQUE)
+    cam_node = ZEDCamera()
 
-    # Enable ROS node and run on background thread
-    rclpy.init(args=None)
-    cam_node = CameraNode()
-    executor = SingleThreadedExecutor()
-    executor.add_node(cam_node)
-    executor_thread = threading.Thread(target=executor.spin, daemon=True)
-    executor_thread.start()
-
-    # Wait until image has been published
-    cam_node.wait_for_message()
-
-    do = input("Action (read=r, manual=m, calib=c):")
-    if do == "r":
-        iters = int(input("Number of read iterations?"))
-        koch_robot.read_pos(iters)
-    elif do == "m":
-        koch_robot.manual_control()
-    elif do == "c":
-        koch_robot.camera_calibration(cam_node)
+    try:
+        do = input("Action (read=r, manual=m, calib=c):")
+        if do == "r":
+            iters = int(input("Number of read iterations?"))
+            koch_robot.read_pos(iters)
+        elif do == "m":
+            koch_robot.manual_control()
+        elif do == "c":
+            koch_robot.camera_calibration(cam_node)
+    except KeyboardInterrupt:
+        koch_robot.exit()
 
     koch_robot.exit()
+    
 
     
