@@ -222,13 +222,18 @@ class ZEDCamera:
     def __init__(self):
         self.zed = sl.Camera()
         init_params = sl.InitParameters()
-        init_params.camera_resolution = sl.RESOLUTION.HD720  # Set resolution to HD720
-        init_params.camera_fps = 30  # Set FPS to 30
+        init_params.camera_resolution = sl.RESOLUTION.HD720
+        init_params.camera_fps = 30
 
+        # Open the camera
+        if self.zed.open(init_params) != sl.ERROR_CODE.SUCCESS:
+            print("Failed to open ZED Camera")
+            exit(1)
+
+        camera_info = self.zed.get_camera_information()
         self.image_zed = sl.Mat(camera_info.camera_configuration.resolution.width, 
                                 camera_info.camera_configuration.resolution.height, 
                                 sl.MAT_TYPE.U8_C4)
-        camera_info = self.zed.get_camera_information()
         calib_params = camera_info.camera_configuration.calibration_parameters
         self.left_cam_params = calib_params.left_cam
 
