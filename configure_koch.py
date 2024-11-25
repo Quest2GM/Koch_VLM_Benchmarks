@@ -42,15 +42,16 @@ class KochRobot:
         )
 
         # DH parameters
-        self.PI = np.pi
         self.d1, self.a2, self.a3, self.d5 = 5.5, 20.83, 10, 10.5
         A = [0, self.a2, self.a3, 0, 0]
-        ALPHA = [-self.PI/2, 0, 0, self.PI/2, 0]
+        ALPHA = [-np.pi/2, 0, 0, np.pi/2, 0]
         D = [self.d1, 0, 0, 0, self.d5]
-        OFFSET = [0, 0, 0, self.PI/2, 0]
-        self.LLIM = [[1,30], [-20, 20], []]
-        QLIM = [[-self.PI/2, self.PI/2], [0, self.PI/2], [-self.PI/2, self.PI/2],\
-                [-self.PI/2, self.PI/2], [-self.PI, self.PI]]
+        OFFSET = [0, 0, 0, np.pi/2, 0]
+        QLIM = [[-np.pi/2, np.pi/2], [0, np.pi/2], [-np.pi/2, np.pi/2],\
+                [-np.pi/2, np.pi/2], [-np.pi, np.pi]]
+        
+        # Initial EE angles
+        self.q5, self.q6 = 0, np.pi / 2
         
         self.robot_dh = DHRobot([RevoluteDH(a=A[i], 
                                             alpha=ALPHA[i], 
@@ -59,12 +60,13 @@ class KochRobot:
                                             qlim=QLIM[i]) for i in range(len(A))])
 
         self.robot.connect()
-        print("Robot connected!")
 
         if torque:
             self.robot.follower_arms["main"].write("Torque_Enable", TorqueMode.ENABLED.value)
         else:
             self.robot.follower_arms["main"].write("Torque_Enable", TorqueMode.DISABLED.value)
+        
+        print("Robot connected!")
 
         # Camera-robot calibration variables
         self.R, self.t = [], []
@@ -78,7 +80,7 @@ class KochRobot:
             robot_angles = self.robot.follower_arms["main"].read("Present_Position")
 
             # However, we only need the first five for DH - the last one is the end effector DOF
-            robot_angles_rad = np.array(robot_angles)[:5] / 360 * 2 * self.PI
+            robot_angles_rad = np.array(robot_angles)[:5] / 360 * 2 * np.pi
 
             # Between self.robot and self.robot_dh, the difference is that the second angle is flipped
             robot_angles_rad *= np.array([1, -1, 1, 1, 1])
@@ -118,17 +120,15 @@ class KochRobot:
         phi_4 = np.arctan2(self.d5, self.a3)
         D = (r2**2 - self.a2**2 - r1**2) / (2*self.a2*r1)
         q3 = np.arctan2(np.sqrt(1-D**2), D) - phi_4
-        phi_3 = self.PI - q3 - phi_4
+        phi_3 = np.pi - q3 - phi_4
 
-        q4, q5 = self.PI/2, 0
-
-        Q = [q1, -q2, q3, q4, q5, self.PI/2]
+        Q = [q1, -q2, q3, np.pi/2, self.q5, self.q6]
 
         return np.array(Q)
     
     def write_pos(self, q):
         q[1] *= -1  # switch first motor polarity
-        q = q / (2*self.PI) * 360
+        q = q / (2*np.pi) * 360
         self.robot.follower_arms["main"].write("Goal_Position", q)
 
 
@@ -141,18 +141,25 @@ class KochRobot:
         def on_press(key):
             nonlocal positions
 
-            keys = ["1", "3", "5", "2", "4", "6"]
-            axis = [0, 1, 2, 0, 1, 2]
+            # Position controller
+            pos_keys = ["1", "3", "5", "2", "4", "6"]
+            pos_axis = [0, 1, 2, 0, 1, 2]
             m = 0.1
-            actions = [m, m, m, -m, -m, -m]
+            pos_actions = [m, m, m, -m, -m, -m]
+
+            # Gripper controller
+            grip_keys = ["7", "9", "8", "0"]
+            grip_axis = [4, 5, 4, 5]
+            m = 0.05
+            grip_actions = [m, m, -m, -m]            
 
             if hasattr(key, 'char'):
                 if key.char == "x":
                     listener.stop()
-                    return
-                elif key.char in keys:
-                    i = keys.index(key.char)
-                    curr_position[axis[i]] += actions[i]
+                    return positions
+                elif key.char in pos_keys:
+                    i = pos_keys.index(key.char)
+                    curr_position[pos_axis[i]] += pos_actions[i]
                     print("Position:", curr_position)
                     inv_kin = self.inv_kin(curr_position)
                     if self.verify_inv(inv_kin):
@@ -160,11 +167,23 @@ class KochRobot:
                         positions += [curr_position]
                     else:
                         print("Reached limit!")
-                        curr_position[axis[i]] -= actions[i]
+                        curr_position[pos_axis[i]] -= pos_actions[i]
+                elif key.char in grip_keys:
+                    i = grip_keys.index(key.char)
+                    axis = grip_axis[i] + 1
+                    if axis == 5:
+                        self.q5 += grip_actions[i]
+                    elif axis == 6 and 0 <= self.q6 + grip_actions[i] <= np.pi / 2:
+                        self.q6 += grip_actions[i]
+                    inv_kin = self.inv_kin(curr_position)
+                    self.write_pos(inv_kin)
 
         print("Axis Controls: 2<-x->1 , 4<-y->3, 6<-z->5")
+        print("Gripper Controls: 7<-z->8 , 9<-g->0")
         with keyboard.Listener(on_press=on_press) as listener:
             listener.join()
+
+        return positions
 
 
     def camera_calibration(self, cam_node):
@@ -206,9 +225,11 @@ class KochRobot:
         calibration_coords = np.array(calibration_coords).reshape(-1,2).astype(np.float32)
 
         # Estimate the rotation vector (rvec) and translation vector (tvec)
-        _, rvec, self.t = cv2.solvePnP(calibration_poses, calibration_coords, cam_node.K, distCoeffs=None)
+        _, rvec, self.t = cv2.solvePnP(calibration_poses, calibration_coords, cam_node.K, distCoeffs=cam_node.D)
         self.R, _ = cv2.Rodrigues(rvec)
 
+        # Save output
+        np.save("calibration.npy", np.array([self.R, self.t], dtype=object))
 
     def exit(self):
         input("Press return to deactivate robot...")
