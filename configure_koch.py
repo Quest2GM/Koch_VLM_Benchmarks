@@ -51,9 +51,10 @@ class KochRobot:
         OFFSET = [0, 0, 0, np.pi/2, 0]
         QLIM = [[-np.pi/2, np.pi/2], [0, np.pi/2], [-np.pi/2, np.pi/2],\
                 [-np.pi/2, np.pi/2], [-np.pi, np.pi]]
+        self.LLIM = [[5, 17], [-20, 20], [9, 25], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
         
         # Initial EE angles
-        self.q5, self.q6 = 0, np.pi / 2
+        self.q4, self.q5 = 0, np.pi / 2
         
         self.robot_dh = DHRobot([RevoluteDH(a=A[i], 
                                             alpha=ALPHA[i], 
@@ -100,9 +101,15 @@ class KochRobot:
         return target_position
 
 
-    def verify_inv(self, q):
-        return not np.isnan(q).any()
-
+    def verify_inv(self, q, p, axis):
+        limits = self.LLIM[axis]
+        if np.isnan(q).any():
+            return False
+        if 0 <= axis <= 2 and not limits[0] <= p[axis] <= limits[1]:
+            return False
+        elif 4 <= axis <= 5 and not limits[0] <= q[axis] <= limits[1]:
+            return False            
+        return True
 
     def inv_kin(self, target_position):
 
@@ -124,7 +131,7 @@ class KochRobot:
         q3 = np.arctan2(np.sqrt(1-D**2), D) - phi_4
         phi_3 = np.pi - q3 - phi_4
 
-        Q = [q1, -q2, q3, np.pi/2, self.q5, self.q6]
+        Q = [q1, -q2, q3, np.pi/2, self.q4, self.q5]
 
         return np.array(Q)
     
@@ -162,29 +169,36 @@ class KochRobot:
                     listener.stop()
                     return positions
                 
-                # Position controller (q1, q2, q3, q4)
+                # Position controller (q1, q2, q3)
                 elif key.char in pos_keys:
                     i = pos_keys.index(key.char)
                     curr_position[pos_axis[i]] += pos_actions[i]
                     print("Position:", curr_position)
                     inv_kin = self.inv_kin(curr_position)
-                    if self.verify_inv(inv_kin):
+                    if self.verify_inv(inv_kin, curr_position, pos_axis[i]):
                         self.write_pos(inv_kin)
                         positions += [curr_position]
                     else:
                         print("Reached limit!")
                         curr_position[pos_axis[i]] -= pos_actions[i]
 
-                # Gripper controller (q5, q6)
+                # Gripper controller (q4, q5)
                 elif key.char in grip_keys:
                     i = grip_keys.index(key.char)
-                    axis = grip_axis[i] + 1
-                    if axis == 5:
+                    axis = grip_axis[i]
+                    if axis == 4:
+                        self.q4 += grip_actions[i]
+                    elif axis == 5:
                         self.q5 += grip_actions[i]
-                    elif axis == 6 and 0 <= self.q6 + grip_actions[i] <= np.pi / 2:
-                        self.q6 += grip_actions[i]
                     inv_kin = self.inv_kin(curr_position)
-                    self.write_pos(inv_kin)
+                    if self.verify_inv(inv_kin, curr_position, grip_axis[i]):
+                        self.write_pos(inv_kin)
+                    else:
+                        print("Reached limit!")
+                        if axis == 4:
+                            self.q4 -= grip_actions[i]
+                        elif axis == 5:
+                            self.q5 -= grip_actions[i]
 
         print("Axis Controls: 2<-x->1 , 4<-y->3, 6<-z->5")
         print("Gripper Controls: 7<-z->8 , 9<-g->0")
