@@ -6,6 +6,8 @@ import subprocess
 import cv2
 import time
 import numpy as np
+from scipy.ndimage import label
+from PIL import Image
 from pynput import keyboard
 from roboticstoolbox import DHRobot, RevoluteDH
 
@@ -141,22 +143,26 @@ class KochRobot:
         def on_press(key):
             nonlocal positions
 
-            # Position controller
+            # Position control
             pos_keys = ["1", "3", "5", "2", "4", "6"]
             pos_axis = [0, 1, 2, 0, 1, 2]
             m = 0.1
             pos_actions = [m, m, m, -m, -m, -m]
 
-            # Gripper controller
+            # Gripper control
             grip_keys = ["7", "9", "8", "0"]
             grip_axis = [4, 5, 4, 5]
             m = 0.05
             grip_actions = [m, m, -m, -m]            
 
             if hasattr(key, 'char'):
+
+                # Exit
                 if key.char == "x":
                     listener.stop()
                     return positions
+                
+                # Position controller (q1, q2, q3, q4)
                 elif key.char in pos_keys:
                     i = pos_keys.index(key.char)
                     curr_position[pos_axis[i]] += pos_actions[i]
@@ -168,6 +174,8 @@ class KochRobot:
                     else:
                         print("Reached limit!")
                         curr_position[pos_axis[i]] -= pos_actions[i]
+
+                # Gripper controller (q5, q6)
                 elif key.char in grip_keys:
                     i = grip_keys.index(key.char)
                     axis = grip_axis[i] + 1
@@ -187,12 +195,18 @@ class KochRobot:
 
 
     def camera_calibration(self, cam_node):
-        
-        # TODO: Find some way to auto generate this
-        calibration_poses = [[6.729, -15.97, 26.7], [8.934, -23.48, 14.41], [15.94, -1.57, 24.91], [21.43, 19.3, 12.94], [4.938, 26.3, 24.84], [23.84, 13.5, 6.85]]
-        calibration_coords = []
 
-        for final_position in calibration_poses:
+        # Pick up object for ee-tracking
+        print("Pick up the object to track the end effector...")
+        self.manual_control()
+        
+        # Hardcoded poses - we will capture all intermediate poses automatically
+        move_poses = [[6.729, -15.97, 26.7], [8.934, -23.48, 14.41],\
+                      [15.94, -1.57, 24.91], [21.43, 19.3, 12.94],\
+                      [4.938, 26.3, 24.84]]
+        calibration_poses, calibration_coords = [], []
+
+        for final_position in move_poses:
             
             # Generate positions from current position to end position
             curr_position = self.read_pos(iters=1)
@@ -204,20 +218,23 @@ class KochRobot:
 
             # Move end effector to goal
             print("Sending to goal...")
-            for I in inv_kin:
+            for i, I in enumerate(inv_kin):
                 time.sleep(0.02)
                 self.write_pos(I)
+
+                # Every 10th step get calibration coordinates and poses
+                if i % 10 == 0:
+                    print(i)
+                    time.sleep(0.5)
+                    calibration_poses += [grad_poses[i]]
+                    calibration_coords += [cam_node.detect_end_effector()]
+
             print("Reached!")
             time.sleep(1)   # wait before capturing picture
 
             # Show image to determine EE coordinates
             cv2.imshow("robot_img", cam_node.capture_image())
             cv2.waitKey(0)
-
-            # TODO: Need to find some way to automate this
-            x_in = input('x:')
-            y_in = input('y:')
-            calibration_coords += [[int(x_in), int(y_in)]]
 
             cv2.destroyAllWindows()
 
@@ -229,7 +246,7 @@ class KochRobot:
         self.R, _ = cv2.Rodrigues(rvec)
 
         # Save output
-        np.save("calibration.npy", np.array([self.R, self.t], dtype=object))
+        np.save("calibration.npy", np.array([self.R.reshape(-1), self.t], dtype=object))
 
     def exit(self):
         input("Press return to deactivate robot...")
@@ -238,7 +255,7 @@ class KochRobot:
 
 
 
-class ZEDCamera:
+class ZEDCamera: 
 
     def __init__(self):
         self.zed = sl.Camera()
@@ -289,6 +306,70 @@ class ZEDCamera:
             image_rgb = cv2.cvtColor(image_ocv, cv2.COLOR_RGBA2RGB)
 
         return image_rgb
+    
+
+    def hsv_limits(self, color):
+        c = np.uint8([[color]])  # BGR values
+        hsvC = cv2.cvtColor(c, cv2.COLOR_BGR2HSV)
+
+        hue = hsvC[0][0][0]  # Get the hue value
+
+        # Handle red hue wrap-around
+        if hue >= 165:  # Upper limit for divided red hue
+            lowerLimit = np.array([hue - 10, 100, 100], dtype=np.uint8)
+            upperLimit = np.array([180, 255, 255], dtype=np.uint8)
+        elif hue <= 15:  # Lower limit for divided red hue
+            lowerLimit = np.array([0, 100, 100], dtype=np.uint8)
+            upperLimit = np.array([hue + 10, 255, 255], dtype=np.uint8)
+        else:
+            lowerLimit = np.array([hue - 10, 100, 100], dtype=np.uint8)
+            upperLimit = np.array([hue + 10, 255, 255], dtype=np.uint8)
+
+        return lowerLimit, upperLimit
+    
+
+    def detect_end_effector(self):
+
+
+        def keep_largest_blob(image):
+
+            # Ensure the image contains only 0 and 255
+            binary_image = (image == 255).astype(int)
+
+            # Label connected components
+            labeled_image, num_features = label(binary_image)
+
+            # If no features, return the original image
+            if num_features == 0:
+                return np.zeros_like(image, dtype=np.uint8)
+
+            # Find the largest component by its label
+            largest_blob_label = max(range(1, num_features + 1), key=lambda lbl: np.sum(labeled_image == lbl))
+
+            # Create an output image with only the largest blob
+            output_image = (labeled_image == largest_blob_label).astype(np.uint8) * 255
+
+            return output_image
+
+        color = [158, 105, 16]
+
+        # Get bounding box around object
+        frame = self.capture_image()
+        hsvImage = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        lowerLimit, upperLimit = self.hsv_limits(color=color)
+        mask = cv2.inRange(hsvImage, lowerLimit, upperLimit)
+        mask = keep_largest_blob(mask)
+        mask_ = Image.fromarray(mask)
+        bbox = mask_.getbbox()
+
+        if bbox is not None:
+            x1, y1, x2, y2 = bbox
+            frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
+
+        cv2.imshow('frame', frame)
+        cv2.waitKey(0)
+
+        return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
 
 
 if __name__ == "__main__":
