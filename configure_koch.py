@@ -111,6 +111,7 @@ class KochRobot:
             return False            
         return True
 
+
     def inv_kin(self, target_position):
 
         px, py, pz = target_position
@@ -135,6 +136,7 @@ class KochRobot:
 
         return np.array(Q)
     
+
     def write_pos(self, q):
         q[1] *= -1  # switch first motor polarity
         q = q / (2*np.pi) * 360
@@ -247,7 +249,7 @@ class KochRobot:
             time.sleep(1)   # wait before capturing picture
 
             # Show image to determine EE coordinates
-            cv2.imshow("robot_img", cam_node.capture_image())
+            cv2.imshow("robot_img", cam_node.capture_image("rgb"))
             cv2.waitKey(0)
 
             cv2.destroyAllWindows()
@@ -261,6 +263,7 @@ class KochRobot:
 
         # Save output
         np.save("calibration.npy", np.array([self.R.reshape(-1), self.t], dtype=object))
+
 
     def exit(self):
         input("Press return to deactivate robot...")
@@ -312,14 +315,24 @@ class ZEDCamera:
         ])
         return D
     
-    def capture_image(self):
+
+    def capture_image(self, image_type):
 
         if self.zed.grab() == sl.ERROR_CODE.SUCCESS:
-            self.zed.retrieve_image(self.image_zed, sl.VIEW.LEFT)
-            image_ocv = self.image_zed.get_data()
-            image_rgb = cv2.cvtColor(image_ocv, cv2.COLOR_RGBA2RGB)
 
-        return image_rgb
+            if image_type == "rgb":
+                self.zed.retrieve_image(self.image_zed, sl.VIEW.LEFT)
+            elif image_type == "depth":
+                self.zed.retrieve_image(self.image_zed, sl.VIEW.DEPTH)
+            else:
+                raise Exception("Invalid image type!")
+
+            image_ocv = self.image_zed.get_data()
+            image = cv2.cvtColor(image_ocv, cv2.COLOR_RGBA2RGB)
+            return image
+        
+        else:
+            raise Exception("Could not get RGB image!")
     
 
     def hsv_limits(self, color):
@@ -344,7 +357,6 @@ class ZEDCamera:
 
     def detect_end_effector(self):
 
-
         def keep_largest_blob(image):
 
             # Ensure the image contains only 0 and 255
@@ -368,7 +380,7 @@ class ZEDCamera:
         color = [158, 105, 16]
 
         # Get bounding box around object
-        frame = self.capture_image()
+        frame = self.capture_image("rgb")
         hsvImage = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         lowerLimit, upperLimit = self.hsv_limits(color=color)
         mask = cv2.inRange(hsvImage, lowerLimit, upperLimit)
