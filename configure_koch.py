@@ -13,6 +13,11 @@ from roboticstoolbox import DHRobot, RevoluteDH
 
 import pyzed.sl as sl
 
+from sam2.build_sam import build_sam2
+from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+import torch
+import matplotlib.pyplot as plt
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -210,7 +215,7 @@ class KochRobot:
         return positions
 
 
-    def camera_calibration(self, cam_node):
+    def camera_extrinsics(self, cam_node):
 
         # Pick up object for ee-tracking
         print("Pick up the object to track the end effector...")
@@ -262,7 +267,9 @@ class KochRobot:
         self.R, _ = cv2.Rodrigues(rvec)
 
         # Save output
-        np.save("calibration.npy", np.array([self.R.reshape(-1), self.t], dtype=object))
+        np.save("camera_extrinsics.npy", np.array([self.R.reshape(-1), self.t], dtype=object))
+
+        return [self.R, self.t]
 
 
     def exit(self):
@@ -294,6 +301,12 @@ class ZEDCamera:
 
         self.K = self.get_K()
         self.D = self.get_D()
+
+        # SAM2
+        sam2_checkpoint = "./sam2/checkpoints/sam2.1_hiera_large.pt"
+        model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
+        sam2 = build_sam2(model_cfg, sam2_checkpoint, device=torch.device("cuda"), apply_postprocessing=False)
+        self.mask_generator = SAM2AutomaticMaskGenerator(sam2)
 
 
     def get_K(self):
@@ -396,6 +409,13 @@ class ZEDCamera:
         cv2.waitKey(0)
 
         return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
+    
+
+    def sam2_masks(self):
+        image = self.capture_image("rgb")
+        mask_dict = self.mask_generator.generate(image)
+        masks = [mask_dict[i]["segmentation"] for i in range(len(mask_dict))]
+        return masks
 
 
 if __name__ == "__main__":
