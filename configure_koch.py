@@ -254,10 +254,9 @@ class KochRobot:
             time.sleep(1)   # wait before capturing picture
 
             # Show image to determine EE coordinates
-            cv2.imshow("robot_img", cam_node.capture_image("rgb"))
-            cv2.waitKey(0)
-
-            cv2.destroyAllWindows()
+            plt.imshow(cam_node.capture_image("rgb"))
+            plt.axis('off')
+            plt.show()
 
         calibration_poses = np.array(calibration_poses).reshape(-1,3).astype(np.float32)
         calibration_coords = np.array(calibration_coords).reshape(-1,2).astype(np.float32)
@@ -405,8 +404,9 @@ class ZEDCamera:
             x1, y1, x2, y2 = bbox
             frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
 
-        cv2.imshow('frame', frame)
-        cv2.waitKey(0)
+        plt.imshow(frame)
+        plt.axis('off')
+        plt.show()
 
         return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
     
