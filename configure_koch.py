@@ -247,16 +247,14 @@ class KochRobot:
                 if i % 10 == 0:
                     print(i)
                     time.sleep(0.5)
-                    calibration_poses += [grad_poses[i]]
-                    calibration_coords += [cam_node.detect_end_effector()]
+                    coords = cam_node.detect_end_effector()
+                    keep_coords = input("Keep? (y/n)")
+                    if keep_coords == "y":
+                        calibration_coords += [coords]
+                        calibration_poses += [grad_poses[i]]
 
             print("Reached!")
             time.sleep(1)   # wait before capturing picture
-
-            # Show image to determine EE coordinates
-            plt.imshow(cam_node.capture_image("rgb"))
-            plt.axis('off')
-            plt.show()
 
         calibration_poses = np.array(calibration_poses).reshape(-1,3).astype(np.float32)
         calibration_coords = np.array(calibration_coords).reshape(-1,2).astype(np.float32)
@@ -404,9 +402,7 @@ class ZEDCamera:
             x1, y1, x2, y2 = bbox
             frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
 
-        plt.imshow(frame)
-        plt.axis('off')
-        plt.show()
+        cv2.imwrite("calib.png", frame)
 
         return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
     
@@ -434,7 +430,7 @@ if __name__ == "__main__":
         elif do == "m":
             koch_robot.manual_control()
         elif do == "c":
-            koch_robot.camera_calibration(cam_node)
+            koch_robot.camera_extrinsics(cam_node)
     except KeyboardInterrupt:
         koch_robot.exit()
 
