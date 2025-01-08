@@ -141,7 +141,36 @@ class ZEDCamera:
         cv2.imwrite("calib.png", frame)
 
         return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
-    
+
+
+    def pixel_to_3d_points(self):
+
+        try:
+            x = np.load("camera_extrinsics.npy", allow_pickle=True)
+            R, t = x[0].reshape(3,3), x[1].reshape(3,1)
+            t = t / 100
+            print("R:", R, "\nt:", t)
+        except:
+            print("Failed to load extrinsics.")
+            R, t = np.eye(3), np.array([[0], [0], [0]])
+
+        depth_pc = self.capture_points()
+        K_inv = np.linalg.inv(self.get_K())
+        R_inv = np.linalg.inv(R)
+
+        # Get array of valid pixel locations
+        xv, yv = np.meshgrid(np.arange(depth_pc.shape[1]), np.arange(depth_pc.shape[0]))
+        nan_mask = ~np.isnan(depth_pc)
+        xv, yv = xv[nan_mask], yv[nan_mask]
+        pc_all = np.vstack((xv, yv, np.ones(xv.shape)))
+        
+        # Convert pixel to world coordinates
+        s = depth_pc[yv, xv]
+        pc_camera = s * (K_inv @ pc_all)
+        pw_final = (R_inv @ (pc_camera - t)).T
+
+        return pw_final, pc_all, R, t
+
 
     def sam2_masks(self):
         image = self.capture_image("rgb")
