@@ -1,22 +1,14 @@
 from lerobot.common.robot_devices.motors.dynamixel import DynamixelMotorsBus
 from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
 from lerobot.common.robot_devices.robots.manipulator import ManipulatorRobot
+from zed import ZEDCamera
 
 import subprocess
 import cv2
 import time
 import numpy as np
-from scipy.ndimage import label
-from PIL import Image
 from pynput import keyboard
 from roboticstoolbox import DHRobot, RevoluteDH
-
-import pyzed.sl as sl
-
-from sam2.build_sam import build_sam2
-from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-import torch
-import matplotlib.pyplot as plt
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -49,14 +41,14 @@ class KochRobot:
         )
 
         # DH parameters
-        self.d1, self.a2, self.a3, self.d5 = 5.5, 20.83, 10, 10.5
+        self.d1, self.a2, self.a3, self.d5 = 5.5, 10.68, 10, 10.5
         A = [0, self.a2, self.a3, 0, 0]
         ALPHA = [-np.pi/2, 0, 0, np.pi/2, 0]
         D = [self.d1, 0, 0, 0, self.d5]
         OFFSET = [0, 0, 0, np.pi/2, 0]
         QLIM = [[-np.pi/2, np.pi/2], [0, np.pi/2], [-np.pi/2, np.pi/2],\
                 [-np.pi/2, np.pi/2], [-np.pi, np.pi]]
-        self.LLIM = [[5, 17], [-20, 20], [9, 25], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
+        self.LLIM = [[8, 17], [-15, 15], [1, 20], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
         
         # Initial EE angles
         self.q4, self.q5 = 0, np.pi / 2
@@ -91,7 +83,7 @@ class KochRobot:
             robot_angles_rad = np.array(robot_angles)[:5] / 360 * 2 * np.pi
 
             # Between self.robot and self.robot_dh, the difference is that the second angle is flipped
-            robot_angles_rad *= np.array([1, -1, 1, 1, 1])
+            robot_angles_rad *= np.array([-1, -1, 1, 1, 1])
 
             out = self.robot_dh.fkine(robot_angles_rad)
             target_position = np.array(out)[:3, 3]
@@ -137,7 +129,7 @@ class KochRobot:
         q3 = np.arctan2(np.sqrt(1-D**2), D) - phi_4
         phi_3 = np.pi - q3 - phi_4
 
-        Q = [q1, -q2, q3, np.pi/2, self.q4, self.q5]
+        Q = [-q1, -q2, q3, np.pi/2, self.q4, self.q5]
 
         return np.array(Q)
     
@@ -222,9 +214,9 @@ class KochRobot:
         self.manual_control()
         
         # Hardcoded poses - we will capture all intermediate poses automatically
-        move_poses = [[6.729, -15.97, 26.7], [8.934, -23.48, 14.41],\
-                      [15.94, -1.57, 24.91], [21.43, 19.3, 12.94],\
-                      [4.938, 26.3, 24.84]]
+        move_poses = [[9, -13, 15], [16.74, -14.48, 5.1],\
+                      [12.83, -1.57, 7], [9, 13, 15],
+                      [17.46, 15, 8]]
         calibration_poses, calibration_coords = [], []
 
         for final_position in move_poses:
@@ -273,145 +265,6 @@ class KochRobot:
         input("Press return to deactivate robot...")
         self.robot.follower_arms["main"].write("Torque_Enable", TorqueMode.DISABLED.value)
         self.robot.disconnect()
-
-
-
-class ZEDCamera: 
-
-    def __init__(self):
-        self.zed = sl.Camera()
-        init_params = sl.InitParameters()
-        init_params.camera_resolution = sl.RESOLUTION.HD720
-        init_params.camera_fps = 30
-
-        # Open the camera
-        if self.zed.open(init_params) != sl.ERROR_CODE.SUCCESS:
-            print("Failed to open ZED Camera")
-            exit(1)
-
-        camera_info = self.zed.get_camera_information()
-        self.image_zed = sl.Mat(camera_info.camera_configuration.resolution.width, 
-                                camera_info.camera_configuration.resolution.height, 
-                                sl.MAT_TYPE.U8_C4)
-        calib_params = camera_info.camera_configuration.calibration_parameters
-        self.left_cam_params = calib_params.left_cam
-
-        self.K = self.get_K()
-        self.D = self.get_D()
-
-        # SAM2
-        sam2_checkpoint = "./sam2/checkpoints/sam2.1_hiera_large.pt"
-        model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-        sam2 = build_sam2(model_cfg, sam2_checkpoint, device=torch.device("cuda"), apply_postprocessing=False)
-        self.mask_generator = SAM2AutomaticMaskGenerator(sam2)
-
-
-    def get_K(self):
-        K = np.array([
-            [self.left_cam_params.fx, 0, self.left_cam_params.cx],
-            [0, self.left_cam_params.fy, self.left_cam_params.cy],
-            [0, 0, 1]
-        ])
-        return K
-    
-
-    def get_D(self):
-        D = np.array([
-            self.left_cam_params.disto[0],  # k1
-            self.left_cam_params.disto[1],  # k2
-            self.left_cam_params.disto[4],  # k3
-            self.left_cam_params.disto[2],  # p1 (tangential distortion)
-            self.left_cam_params.disto[3],  # p2 (tangential distortion)
-        ])
-        return D
-    
-
-    def capture_image(self, image_type):
-
-        if self.zed.grab() == sl.ERROR_CODE.SUCCESS:
-
-            if image_type == "rgb":
-                self.zed.retrieve_image(self.image_zed, sl.VIEW.LEFT)
-            elif image_type == "depth":
-                self.zed.retrieve_image(self.image_zed, sl.VIEW.DEPTH)
-            else:
-                raise Exception("Invalid image type!")
-
-            image_ocv = self.image_zed.get_data()
-            image = cv2.cvtColor(image_ocv, cv2.COLOR_RGBA2RGB)
-            return image
-        
-        else:
-            raise Exception("Could not get RGB image!")
-    
-
-    def hsv_limits(self, color):
-        c = np.uint8([[color]])  # BGR values
-        hsvC = cv2.cvtColor(c, cv2.COLOR_BGR2HSV)
-
-        hue = hsvC[0][0][0]  # Get the hue value
-
-        # Handle red hue wrap-around
-        if hue >= 165:  # Upper limit for divided red hue
-            lowerLimit = np.array([hue - 10, 100, 100], dtype=np.uint8)
-            upperLimit = np.array([180, 255, 255], dtype=np.uint8)
-        elif hue <= 15:  # Lower limit for divided red hue
-            lowerLimit = np.array([0, 100, 100], dtype=np.uint8)
-            upperLimit = np.array([hue + 10, 255, 255], dtype=np.uint8)
-        else:
-            lowerLimit = np.array([hue - 10, 100, 100], dtype=np.uint8)
-            upperLimit = np.array([hue + 10, 255, 255], dtype=np.uint8)
-
-        return lowerLimit, upperLimit
-    
-
-    def detect_end_effector(self):
-
-        def keep_largest_blob(image):
-
-            # Ensure the image contains only 0 and 255
-            binary_image = (image == 255).astype(int)
-
-            # Label connected components
-            labeled_image, num_features = label(binary_image)
-
-            # If no features, return the original image
-            if num_features == 0:
-                return np.zeros_like(image, dtype=np.uint8)
-
-            # Find the largest component by its label
-            largest_blob_label = max(range(1, num_features + 1), key=lambda lbl: np.sum(labeled_image == lbl))
-
-            # Create an output image with only the largest blob
-            output_image = (labeled_image == largest_blob_label).astype(np.uint8) * 255
-
-            return output_image
-
-        color = [158, 105, 16]
-
-        # Get bounding box around object
-        frame = self.capture_image("rgb")
-        hsvImage = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        lowerLimit, upperLimit = self.hsv_limits(color=color)
-        mask = cv2.inRange(hsvImage, lowerLimit, upperLimit)
-        mask = keep_largest_blob(mask)
-        mask_ = Image.fromarray(mask)
-        bbox = mask_.getbbox()
-
-        if bbox is not None:
-            x1, y1, x2, y2 = bbox
-            frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
-
-        cv2.imwrite("calib.png", frame)
-
-        return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
-    
-
-    def sam2_masks(self):
-        image = self.capture_image("rgb")
-        mask_dict = self.mask_generator.generate(image)
-        masks = [mask_dict[i]["segmentation"] for i in range(len(mask_dict))]
-        return masks
 
 
 if __name__ == "__main__":
