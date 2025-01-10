@@ -166,11 +166,11 @@ class KochRobot:
 
     def set_gripper_open(self):
         self.q5 = 0
-        self.set_ee_pose(self.curr_position, axis=5, steps=10)
+        self.set_ee_pose(self.curr_position, axis=5, steps=50)
 
     def set_gripper_close(self):
         self.q5 = np.pi / 2
-        self.set_ee_pose(self.curr_position, axis=5, steps=10)
+        self.set_ee_pose(self.curr_position, axis=5, steps=50)
 
     def set_to_home(self):
         self.set_ee_pose(self.home_position, axis=0, steps=50)
