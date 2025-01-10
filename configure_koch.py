@@ -67,9 +67,13 @@ class KochRobot:
         torque_mode = TorqueMode.ENABLED.value if torque else TorqueMode.DISABLED.value
         self.robot.follower_arms["main"].write("Torque_Enable", torque_mode)
 
-        # Get current_position
+        # Set to home position
+        self.home_position = [8.2, 0, 5.5]
+        self.set_to_home()
+
+        time.sleep(1)
         self.curr_position = self.get_ee_pos()
-        
+
 
     def get_arm_joint_angles(self):
         """
@@ -167,6 +171,10 @@ class KochRobot:
     def set_gripper_close(self):
         self.q5 = np.pi / 2
         self.set_ee_pose(self.curr_position, axis=5)
+
+    def set_to_home(self):
+        self.set_ee_pose(self.home_position, axis=0)
+
 
     def manual_control(self):
         
