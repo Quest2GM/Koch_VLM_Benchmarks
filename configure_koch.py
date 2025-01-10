@@ -68,11 +68,8 @@ class KochRobot:
         self.robot.follower_arms["main"].write("Torque_Enable", torque_mode)
 
         # Set to home position
-        self.home_position = [8.2, 0, 5.5]
+        self.home_position = [10, 0, 5.5]
         self.set_to_home()
-
-        time.sleep(1)
-        self.curr_position = self.get_ee_pos()
 
 
     def get_arm_joint_angles(self):
@@ -106,8 +103,7 @@ class KochRobot:
         # Verify correctness of inverse kinematics
         Q_from_inv = self.inv_kin(ee_pos)
         diff = np.linalg.norm(Q_from_inv[:4] - robot_angles[:4])
-        # if diff > 0.01:
-        #     raise Exception("Inverse kinematics computed incorrectly!", Q_from_inv, robot_angles)
+        print(diff)
         
         return np.hstack((ee_pos, quat_xyzw))
 
@@ -143,7 +139,7 @@ class KochRobot:
         return np.array(Q)
     
     
-    def set_ee_pose(self, pos, axis):
+    def set_ee_pose(self, pos, axis, steps=50):
 
         def verify_inv(q):
             limits = self.LLIM[axis]
@@ -156,27 +152,33 @@ class KochRobot:
             return True
 
         q = self.inv_kin(pos)
+
         if verify_inv(q):
             q[1] *= -1
-            q = q / (2 * np.pi) * 360
-            self.robot.follower_arms["main"].write("Goal_Position", q)
+            curr_q = self.get_arm_joint_angles()
+            interp = np.linspace(curr_q, q, num=steps) / (2 * np.pi) * 360
+            for q_int in interp[1:]:
+                time.sleep(0.01)
+                self.robot.follower_arms["main"].write("Goal_Position", q_int)
             return True
         else:
             return False
 
     def set_gripper_open(self):
         self.q5 = 0
-        self.set_ee_pose(self.curr_position, axis=5)
+        self.set_ee_pose(self.curr_position, axis=5, steps=10)
 
     def set_gripper_close(self):
         self.q5 = np.pi / 2
-        self.set_ee_pose(self.curr_position, axis=5)
+        self.set_ee_pose(self.curr_position, axis=5, steps=10)
 
     def set_to_home(self):
-        self.set_ee_pose(self.home_position, axis=0)
+        self.set_ee_pose(self.home_position, axis=0, steps=50)
 
 
     def manual_control(self):
+
+        self.curr_position = self.get_ee_pos()
         
         # increment
         m = 0.05
@@ -202,6 +204,11 @@ class KochRobot:
                     listener.stop()
                     return
                 
+                # Return to start position
+                elif key.char == "h":
+                    self.set_to_home()
+                    self.curr_position = self.get_ee_pos()
+                
                 elif key.char in control_dict:
 
                     # Get control parameters
@@ -217,7 +224,7 @@ class KochRobot:
                         self.set_gripper_open() if direc == 1 else self.set_gripper_close()
 
                     # Revert if command has reached limit
-                    if not self.set_ee_pose(self.curr_position, axis):
+                    if not self.set_ee_pose(self.curr_position, axis, steps=2):
                         if ctrl == "xyz":
                             self.curr_position[axis] -= direc * m
                         elif ctrl == "eeo":
@@ -259,7 +266,7 @@ class KochRobot:
             print("Sending to goal...")
             for i, g in enumerate(grad_poses):
                 time.sleep(0.02)
-                self.set_ee_pose(g, axis=0)
+                self.set_ee_pose(g, axis=0, steps=2)
 
                 # Every 10th step get calibration coordinates and poses
                 if i % 10 == 0:
