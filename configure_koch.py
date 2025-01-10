@@ -254,13 +254,12 @@ class KochRobot:
             lin_y = np.linspace(curr_position[1], final_position[1], num=100)
             lin_z = np.linspace(curr_position[2], final_position[2], num=100)
             grad_poses = np.vstack((lin_x, lin_y, lin_z)).T
-            inv_kin = [self.inv_kin(g) for g in grad_poses]
 
             # Move end effector to goal
             print("Sending to goal...")
-            for i, I in enumerate(inv_kin):
+            for i, g in enumerate(grad_poses):
                 time.sleep(0.02)
-                self.write_pos(I)
+                self.set_ee_pose(g, axis=0)
 
                 # Every 10th step get calibration coordinates and poses
                 if i % 10 == 0:
