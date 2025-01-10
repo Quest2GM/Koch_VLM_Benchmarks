@@ -1,7 +1,7 @@
 from lerobot.common.robot_devices.motors.dynamixel import DynamixelMotorsBus
 from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
 from lerobot.common.robot_devices.robots.manipulator import ManipulatorRobot
-from zed import ZEDCamera
+from camera import ZEDCamera
 
 import subprocess
 import cv2
@@ -70,6 +70,9 @@ class KochRobot:
         # Set to home position
         self.home_position = [10, 0, 5.5]
         self.set_to_home()
+
+        time.sleep(1)
+        self.curr_position = self.get_ee_pos()
 
 
     def get_arm_joint_angles(self):
