@@ -106,7 +106,6 @@ class KochRobot:
         # Verify correctness of inverse kinematics
         Q_from_inv = self.inv_kin(ee_pos)
         diff = np.linalg.norm(Q_from_inv[:4] - robot_angles[:4])
-        print(diff)
         
         return np.hstack((ee_pos, quat_xyzw))
 
@@ -176,6 +175,8 @@ class KochRobot:
         self.set_ee_pose(self.curr_position, axis=5, steps=50)
 
     def set_to_home(self):
+        self.q4 = 0
+        self.q5 = np.pi / 2
         self.set_ee_pose(self.home_position, axis=0, steps=50)
 
 
@@ -310,7 +311,7 @@ if __name__ == "__main__":
     ENABLE_TORQUE = True
 
     koch_robot = KochRobot(port=PORT, torque=ENABLE_TORQUE)
-    cam_node = ZEDCamera()
+    # cam_node = ZEDCamera()
 
     try:
         do = input("Action (read=r, manual=m, calib=c):")
@@ -319,7 +320,8 @@ if __name__ == "__main__":
         elif do == "m":
             koch_robot.manual_control()
         elif do == "c":
-            koch_robot.camera_extrinsics(cam_node)
+            pass
+            # koch_robot.camera_extrinsics(cam_node)
     except KeyboardInterrupt:
         koch_robot.exit()
 
