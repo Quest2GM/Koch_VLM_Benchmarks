@@ -21,7 +21,7 @@ class SAM:
     Segment Anything: generates masks of distinct objects in an RGB image.
     """
 
-    def __init___(self):
+    def __init__(self):
         sam2_checkpoint = "./sam2/checkpoints/sam2.1_hiera_large.pt"
         model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
         sam2 = build_sam2(model_cfg, sam2_checkpoint, device=torch.device("cuda"), apply_postprocessing=False)
@@ -39,7 +39,7 @@ class Cutie:
     """
 
     def __init__(self, init_mask, init_image):
-               
+
         # obtain the Cutie model with default parameters -- skipping hydra configuration
         cutie = get_default_model()
         self.processor = InferenceCore(cutie, cfg=cutie.cfg)
@@ -92,7 +92,8 @@ if __name__ == "__main__":
     # for i, M in enumerate(masks):
     #     m = M.astype("uint8")
     #     m = m * 255
-    #     Image.fromarray(m).convert("RGB").save(f"{i}.png")
+    #     # Image.fromarray(m).convert("RGB").save(f"{i}.png")
+    # assert False    
 
     # Load mask
     mask = np.array(Image.open("13.png").convert("L"))
