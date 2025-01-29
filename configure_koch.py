@@ -14,6 +14,9 @@ from roboticstoolbox import DHRobot, RevoluteDH
 import warnings
 warnings.filterwarnings("ignore")
 
+from threading import Lock
+import matplotlib.pyplot as plt
+from skimage.draw import disk
 
 class KochRobot:
 
@@ -45,10 +48,10 @@ class KochRobot:
 
         # DH parameters and limits
         self.d1, self.a2, self.a3, self.d5 = 5.5, 10.68, 10, 10.5
-        A = [0, self.a2, self.a3, 0, 0]
-        ALPHA = [-np.pi/2, 0, 0, np.pi/2, 0]
-        D = [self.d1, 0, 0, 0, self.d5]
-        OFFSET = [0, 0, 0, np.pi/2, 0]
+        self.A = [0, self.a2, self.a3, 0, 0]
+        self.ALPHA = [-np.pi/2, 0, 0, np.pi/2, 0]
+        self.D = [self.d1, 0, 0, 0, self.d5]
+        self.OFFSET = [0, 0, 0, np.pi/2, 0]
         QLIM = [[-np.pi/2, np.pi/2], [0, np.pi/2], [-np.pi/2, np.pi/2],\
                 [-np.pi/2, np.pi/2], [-np.pi, np.pi]]
         self.LLIM = [[8, 17], [-15, 15], [1, 20], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
@@ -57,11 +60,11 @@ class KochRobot:
         self.q4, self.q5 = 0, np.pi / 2
         
         # For computing forward kinematics
-        self.robot_dh = DHRobot([RevoluteDH(a=A[i], 
-                                            alpha=ALPHA[i], 
-                                            d=D[i], 
-                                            offset=OFFSET[i], 
-                                            qlim=QLIM[i]) for i in range(len(A))])
+        self.robot_dh = DHRobot([RevoluteDH(a=self.A[i], 
+                                            alpha=self.ALPHA[i], 
+                                            d=self.D[i], 
+                                            offset=self.OFFSET[i], 
+                                            qlim=QLIM[i]) for i in range(len(self.A))])
 
         # Initialize with torch enabled/disabled
         torque_mode = TorqueMode.ENABLED.value if torque else TorqueMode.DISABLED.value
@@ -73,6 +76,14 @@ class KochRobot:
 
         time.sleep(1)
         self.curr_position = self.get_ee_pos()
+
+        # Display images
+        # plt.ion()
+        # self.fig, self.ax = plt.subplots()
+        # self.img_display = self.ax.imshow(np.zeros((10,10)))
+        # plt.title("Live Camera Feed")
+        # plt.axis("off")
+        # plt.show(block=False)
 
 
     def get_arm_joint_angles(self):
@@ -89,31 +100,64 @@ class KochRobot:
         Reads joint angles and computes ee pose.
         """
 
+        def computeDHMatrix(a, alpha, d, theta):
+
+            ca = np.cos(alpha)
+            sa = np.sin(alpha)
+            ct = np.cos(theta)
+            st = np.sin(theta)
+            
+            # Construct the DH matrix
+            T = np.array([
+                [ ct,           -st * ca,        st * sa,         a * ct ],
+                [ st,            ct * ca,       -ct * sa,         a * st ],
+                [ 0,             sa,             ca,              d      ],
+                [ 0,             0,              0,               1      ]
+            ], dtype=float)
+            
+            return T
+
         # Follower arms outputs 6 positions because there are 6 motors
         robot_angles_full = self.get_arm_joint_angles()
 
         # However, we only need the first five for DH - the last one is gripper open/close
         robot_angles = np.array(robot_angles_full)[:5]
+        robot_angles[4] = np.abs(robot_angles[4])
+        robot_angles = np.round(robot_angles, decimals=2)
 
         # Between self.robot and self.robot_dh, the difference is that first and second angle is flipped
         # Note that first angle is flipped to ensure right-handed axis
         robot_angles *= np.array([-1, -1, 1, 1, 1])
+        
+        # Forward kinematics
+        # T = np.eye(4)
+        # for i in range(5):
+        #     Ti = computeDHMatrix(self.A[i], self.ALPHA[i], self.D[i], robot_angles[i] + self.OFFSET[i])
+        #     T = T @ Ti
 
         T = np.array(self.robot_dh.fkine(robot_angles))
+        # T_fkine = np.array(self.robot_dh.fkine(robot_angles))
+        # print(T, T_fkine)
+        # assert np.array_equal(T, T_fkine)
+
         ee_matrix, ee_pos = T[:3, :3], T[:3, 3]
+        # print(robot_angles)
         quat_xyzw = R.from_matrix(ee_matrix).as_quat()
 
         # Verify correctness of inverse kinematics
         Q_from_inv = self.inv_kin(ee_pos)
         diff = np.linalg.norm(Q_from_inv[:4] - robot_angles[:4])
         
-        return np.hstack((ee_pos, quat_xyzw))
+        return np.hstack((ee_pos, quat_xyzw)), T
 
     def get_ee_pos(self):
-        return self.get_ee_pose()[:3]
+        return self.get_ee_pose()[0][:3]
 
     def get_ee_quat(self):
-        return self.get_ee_pose()[3:]
+        return self.get_ee_pose()[0][3:]
+    
+    def get_transformation(self):
+        return self.get_ee_pose()[1]
     
 
     def inv_kin(self, target_position):
@@ -156,12 +200,14 @@ class KochRobot:
         q = self.inv_kin(pos)
 
         if verify_inv(q):
+            port_lock = Lock()
             q[1] *= -1
             curr_q = self.get_arm_joint_angles()
             interp = np.linspace(curr_q, q, num=steps) / (2 * np.pi) * 360
             for q_int in interp[1:]:
                 time.sleep(0.01)
-                self.robot.follower_arms["main"].write("Goal_Position", q_int)
+                with port_lock:
+                    self.robot.follower_arms["main"].write("Goal_Position", q_int)
             return True
         else:
             return False
@@ -180,7 +226,7 @@ class KochRobot:
         self.set_ee_pose(self.home_position, axis=0, steps=50)
 
 
-    def manual_control(self):
+    def manual_control(self, cam_node):
 
         self.curr_position = self.get_ee_pos()
         
@@ -237,19 +283,44 @@ class KochRobot:
 
                     print("Position:", self.curr_position)
 
+                    rgb, point = self.return_estimated_ee(cam_node)
+                    cv2.imwrite("x.png", rgb)
+
+
         print("Axis Controls: 2<-x->1 , 4<-y->3, 6<-z->5")
         print("Gripper Controls: 7<-z->8 , 9<-g->0")
         with keyboard.Listener(on_press=on_press) as listener:
             listener.join()
 
         return
+    
+
+    def return_estimated_ee(self, cam_node):
+        """
+        Get estimated pixel coordinate position of the end-effector.
+        """
+
+        # Compute pixel coordinate
+        new_world = self.get_ee_pos()
+        M = np.hstack((cam_node.R, cam_node.t * 100))   # The saved t is converted from m to cm
+        P = np.array([[new_world[0], new_world[1], new_world[2], 1]])
+        pc = M @ P.T
+        x_star = cam_node.K @ pc
+        x_star = x_star / x_star[2]
+        point = [int(np.rint(x_star[1])[0]), int(np.rint(x_star[0])[0])]
+
+        rgb = cam_node.capture_image("rgb")
+        rr, cc = disk(point, 10, shape=rgb.shape)
+        rgb[rr, cc] = (255, 255, 0)
+
+        return rgb, point
 
 
     def camera_extrinsics(self, cam_node):
 
         # Pick up object for ee-tracking
         print("Pick up the object to track the end effector...")
-        self.manual_control()
+        self.manual_control(cam_node)
         
         # Hardcoded poses - we will capture all intermediate poses automatically
         move_poses = [[9, -13, 15], [16.74, -14.48, 5.1],\
@@ -272,16 +343,10 @@ class KochRobot:
                 time.sleep(0.02)
                 self.set_ee_pose(g, axis=0, steps=2)
 
-                # Every 10th step get calibration coordinates and poses
-                if i % 10 == 0:
-                    print(i)
-                    time.sleep(0.5)
-                    coords = cam_node.detect_end_effector()
-                    #keep_coords = input("Keep? (y/n)")
-                    keep_coords = "y"
-                    if keep_coords == "y":
-                        calibration_coords += [coords]
-                        calibration_poses += [grad_poses[i]]
+                # Get end-effector coordinates from the blue object
+                coords = cam_node.detect_end_effector()
+                calibration_coords += [coords]
+                calibration_poses += [grad_poses[i]]                
 
             print("Reached!")
             time.sleep(1)   # wait before capturing picture
@@ -290,13 +355,14 @@ class KochRobot:
         calibration_coords = np.array(calibration_coords).reshape(-1,2).astype(np.float32)
 
         # Estimate the rotation vector (rvec) and translation vector (tvec)
-        _, rvec, self.t = cv2.solvePnP(calibration_poses, calibration_coords, cam_node.K, distCoeffs=cam_node.D)
-        self.R, _ = cv2.Rodrigues(rvec)
+        _, rvec, t = cv2.solvePnP(calibration_poses, calibration_coords, cam_node.K, distCoeffs=cam_node.D)
+        R, _ = cv2.Rodrigues(rvec)
 
         # Save output
-        np.save("camera_extrinsics.npy", np.array([self.R.reshape(-1), self.t], dtype=object))
+        print("R:", R, "t:", t)
+        np.save("camera_extrinsics.npy", np.array([R.reshape(-1), t], dtype=object))
 
-        return [self.R, self.t]
+        return [R, t]
 
 
     def exit(self):
@@ -311,17 +377,17 @@ if __name__ == "__main__":
     ENABLE_TORQUE = True
 
     koch_robot = KochRobot(port=PORT, torque=ENABLE_TORQUE)
-    # cam_node = ZEDCamera()
+    cam_node = ZEDCamera()
 
     try:
         do = input("Action (read=r, manual=m, calib=c):")
         if do == "r":
-            koch_robot.get_ee_pose()
+            print(koch_robot.get_ee_pose())
         elif do == "m":
-            koch_robot.manual_control()
+            koch_robot.manual_control(cam_node)
         elif do == "c":
-            pass
-            # koch_robot.camera_extrinsics(cam_node)
+            # pass
+            koch_robot.camera_extrinsics(cam_node)
     except KeyboardInterrupt:
         koch_robot.exit()
 
