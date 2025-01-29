@@ -14,6 +14,7 @@ class ZEDCamera:
         init_params.camera_fps = 30
         init_params.coordinate_units = sl.UNIT.METER
         init_params.depth_maximum_distance = 40 
+        init_params.depth_mode = sl.DEPTH_MODE.NEURAL
 
         # Open the camera
         if self.zed.open(init_params) != sl.ERROR_CODE.SUCCESS:
@@ -29,6 +30,16 @@ class ZEDCamera:
 
         self.K = self.get_K()
         self.D = self.get_D()
+
+        try:
+            x = np.load("camera_extrinsics.npy", allow_pickle=True)
+            self.R, self.t = x[0].reshape(3,3), x[1].reshape(3,1)
+            self.t /= 100 # Convert from cm to m
+            self.loaded_extrinsics = True
+        except:
+            print("Failed to load extrinsics.")
+            self.R, self.t = np.eye(3), np.array([[0], [0], [0]])
+            self.loaded_extrinsics = False
 
 
     def get_K(self):
@@ -53,7 +64,10 @@ class ZEDCamera:
 
     def capture_image(self, image_type):
 
-        if self.zed.grab() == sl.ERROR_CODE.SUCCESS:
+        runtime_parameters = sl.RuntimeParameters()
+        runtime_parameters.enable_fill_mode = True
+
+        if self.zed.grab(runtime_parameters) == sl.ERROR_CODE.SUCCESS:
 
             if image_type == "rgb":
                 self.zed.retrieve_image(self.image_zed, sl.VIEW.LEFT)
@@ -127,7 +141,7 @@ class ZEDCamera:
             x1, y1, x2, y2 = bbox
             frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
 
-        cv2.imwrite("calib.png", frame)
+        # cv2.imwrite("calib.png", frame)
 
         return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
 
@@ -141,17 +155,9 @@ class ZEDCamera:
 
     def pixel_to_3d_points(self):
 
-        try:
-            x = np.load("camera_extrinsics.npy", allow_pickle=True)
-            R, t = x[0].reshape(3,3), x[1].reshape(3,1)
-            t /= 100 # Convert from cm to m
-        except:
-            print("Failed to load extrinsics.")
-            R, t = np.eye(3), np.array([[0], [0], [0]])
-
         depth_pc = self.capture_points()
         K_inv = np.linalg.inv(self.get_K())
-        R_inv = np.linalg.inv(R)
+        R_inv = np.linalg.inv(self.R)
 
         # Get array of valid pixel locations
         shape = depth_pc.shape
@@ -163,7 +169,7 @@ class ZEDCamera:
         # Convert pixel to world coordinates
         s = depth_pc[yv, xv]
         pc_camera = s * (K_inv @ pc_all)
-        pw_final = (R_inv @ (pc_camera - t)).T
+        pw_final = (R_inv @ (pc_camera - self.t)).T
         pw_final = pw_final.reshape(shape[0], shape[1], 3)
 
         return pw_final
