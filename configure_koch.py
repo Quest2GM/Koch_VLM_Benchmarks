@@ -171,7 +171,7 @@ class KochRobot:
         q3 = np.arctan2(np.sqrt(1-D**2), D) - phi_4
         phi_3 = np.pi - q3 - phi_4
 
-        Q = [-q1, -q2, q3, np.pi/2, self.q4, self.q5]
+        Q = [-q1, -q2, q3, np.pi/2, -q1, self.q5]
 
         return np.array(Q)
     
