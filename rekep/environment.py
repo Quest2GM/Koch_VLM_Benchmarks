@@ -275,7 +275,5 @@ class ReKepEnv:
             return pos_error, rot_error
     
     def sleep(self, seconds):
-        start = time.time()
-        while time.time() - start < seconds:
-            self._step()
+        time.sleep(seconds)
     
