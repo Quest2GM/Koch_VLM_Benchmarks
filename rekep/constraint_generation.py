@@ -16,7 +16,7 @@ def encode_image(image_path):
 class ConstraintGenerator:
     def __init__(self, config):
         self.config = config
-        self.client = OpenAI(api_key="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")
+        self.client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
         self.base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), './vlm_query')
         with open(os.path.join(self.base_dir, 'prompt_template.txt'), 'r') as f:
             self.prompt_template = f.read()
