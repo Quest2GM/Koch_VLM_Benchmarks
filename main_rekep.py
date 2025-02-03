@@ -60,7 +60,7 @@ class Main:
         # initialize solvers
         reset_joint_pos = self.env.get_arm_joint_positions()
         self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
-        self.path_opt = False   # optimize path?
+        self.path_opt = False   # can choose to optimize path or directly interpolate to save time
         if self.path_opt:
             self.path_solver = PathSolver(global_config['path_solver'], ik_solver, reset_joint_pos)
         
@@ -133,8 +133,9 @@ class Main:
             if self.path_opt:
                 next_path = self._get_next_path(next_subgoal, from_scratch=self.first_iter)
             else:
-                next_path = np.zeros((100, 8))
-                goal_lin = np.linspace(self.robot.get_ee_pose()[0], next_subgoal, num=100)
+                num_points = 100
+                next_path = np.zeros((num_points, 8))
+                goal_lin = np.linspace(self.robot.get_ee_pose()[0], next_subgoal, num=num_points)
                 next_path[:, :7] = goal_lin
 
             self.first_iter = False
