@@ -7,8 +7,7 @@ from rekep.utils import (
     get_clock_time,
 )
 
-from openai import OpenAI
-import ast
+import re
 
 class ReKepEnv:
     def __init__(self, config, robot, camera, verbose=False):
@@ -23,9 +22,6 @@ class ReKepEnv:
         self.robot = robot
         self.camera = camera
         self.gripper_state = int(self.robot.q5 == 0)
-
-        # OpenAI client
-        self.ai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
     # ======================================
     # = exposed functions
@@ -45,38 +41,14 @@ class ReKepEnv:
         with open(os.path.join(task_dir, 'output_raw.txt'), 'r') as f:
             self.prompt = f.read()
 
-        with open(os.path.join(task_dir, '../object_idx_template.txt'), 'r') as f:
-            self.prompt_2 = f.read()
-            
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": self.prompt + ".\n" + self.prompt_2
-                    },
-                ]
-            }
-        ]
+        # Extract keypoint-object associations from comments
+        matches = re.findall(r'(\w+)\s*\(keypoint\s*(\d+)\)', self.prompt)
 
-        stream = self.ai_client.chat.completions.create(model='gpt-4o',
-                                                        messages=messages,
-                                                        temperature=0.0,
-                                                        max_tokens=2048,
-                                                        stream=True)
-        output = ""
-        start = time.time()
-        for chunk in stream:
-            print(f'[{time.time()-start:.2f}s] Querying OpenAI API...', end='\r')
-            if chunk.choices[0].delta.content is not None:
-                output += chunk.choices[0].delta.content
-        print(f'[{time.time()-start:.2f}s] Querying OpenAI API...Done')
+        # Generate dictionary dynamically
+        keypoint_objects = {int(kp): obj.replace(" ", "_") for obj, kp in matches}
 
-        output = output.replace("```", "").replace("python", "")
+        return keypoint_objects
 
-        return ast.literal_eval(output)
-    
     def register_keypoints(self, keypoints, camera, rekep_dir):
         """
         Args:
