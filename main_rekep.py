@@ -58,15 +58,15 @@ class Main:
         ik_solver = KochIKSolver(self.robot)
 
         # initialize solvers
-        solve_opt = True # False = solve with direct ik to poses, True = solve with optimization
-        if solve_opt:
-            reset_joint_pos = self.env.get_arm_joint_positions()
-            self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
+        reset_joint_pos = self.env.get_arm_joint_positions()
+        self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
+        self.path_opt = False   # optimize path?
+        if self.path_opt:
             self.path_solver = PathSolver(global_config['path_solver'], ik_solver, reset_joint_pos)
         
         # initialize visualizer
         self.visualizer = Visualizer(global_config['visualizer'], self.env)
-        self.visualize = True
+        self.visualize = False
 
 
     def perform_task(self, instruction, rekep_program_dir=None, disturbance_seq=None):
@@ -113,7 +113,6 @@ class Main:
         self.keypoint_movable_mask[0] = True  # first keypoint is always the ee, so it's movable
 
         # main loop
-        self.last_sim_step_counter = -np.inf
         self._update_stage(1)
         while True:
             scene_keypoints = self.env.get_keypoint_positions()
@@ -121,15 +120,23 @@ class Main:
             self.curr_ee_pose = self.env.get_ee_pose()
             self.curr_joint_pos = self.env.get_arm_joint_positions()
             self.sdf_voxels = self.env.get_sdf_voxels(self.config['sdf_voxel_size'])
-            self.collision_points = self.env.get_collision_points() ## ???
+            self.collision_points = self.env.get_collision_points()
 
             # ====================================
             # = get optimized plan
             # ====================================
             next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
-            print(next_subgoal, self.robot.get_ee_pose())
-            next_path = self._get_next_path(next_subgoal, from_scratch=self.first_iter)
-            print("Next path:", next_path, next_path.shape)
+            print("Current pose:", self.robot.get_ee_pose()[0])
+            print("Next subgoal:", next_subgoal)
+
+            # Optimize path, otherwise do direct interpolation
+            if self.path_opt:
+                next_path = self._get_next_path(next_subgoal, from_scratch=self.first_iter)
+            else:
+                next_path = np.zeros((100, 8))
+                goal_lin = np.linspace(self.robot.get_ee_pose()[0], next_subgoal, num=100)
+                next_path[:, :7] = goal_lin
+
             self.first_iter = False
             self.action_queue = next_path.tolist()
 
@@ -143,6 +150,12 @@ class Main:
                 self._execute_grasp_action()
             elif self.is_release_stage:
                 self._execute_release_action()
+            
+            # End condition
+            if self.stage == self.program_info['num_stages']: 
+                self.env.sleep(2.0)
+                print("Finished!")
+                return
 
             # progress to next stage
             self._update_stage(self.stage + 1)
