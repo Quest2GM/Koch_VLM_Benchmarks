@@ -1,24 +1,14 @@
 import time
 import numpy as np
 import os
-import datetime
-import rekep.transform_utils as T
-import trimesh
-import open3d as o3d
-import imageio
 
-from rekep.og_utils import OGCamera
 from rekep.utils import (
     bcolors,
     get_clock_time,
-    angle_between_rotmat,
-    angle_between_quats,
-    get_linear_interpolation_steps,
-    linear_interpolate_poses,
 )
-import torch
 
-from configure_koch import KochRobot
+from openai import OpenAI
+import ast
 
 class ReKepEnv:
     def __init__(self, config, robot, camera, verbose=False):
@@ -34,6 +24,8 @@ class ReKepEnv:
         self.camera = camera
         self.gripper_state = int(self.robot.q5 == 0)
 
+        # OpenAI client
+        self.ai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
     # ======================================
     # = exposed functions
@@ -46,8 +38,46 @@ class ReKepEnv:
         sdf_voxels = np.zeros((10, 10, 10))
         return sdf_voxels
 
+
+    def _get_obj_idx_dict(self, task_dir):
+        
+        # save prompt
+        with open(os.path.join(task_dir, 'output_raw.txt'), 'r') as f:
+            self.prompt = f.read()
+
+        with open(os.path.join(task_dir, '../object_idx_template.txt'), 'r') as f:
+            self.prompt_2 = f.read()
+            
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": self.prompt + ".\n" + self.prompt_2
+                    },
+                ]
+            }
+        ]
+
+        stream = self.ai_client.chat.completions.create(model='gpt-4o',
+                                                        messages=messages,
+                                                        temperature=0.0,
+                                                        max_tokens=2048,
+                                                        stream=True)
+        output = ""
+        start = time.time()
+        for chunk in stream:
+            print(f'[{time.time()-start:.2f}s] Querying OpenAI API...', end='\r')
+            if chunk.choices[0].delta.content is not None:
+                output += chunk.choices[0].delta.content
+        print(f'[{time.time()-start:.2f}s] Querying OpenAI API...Done')
+
+        output = output.replace("```", "").replace("python", "")
+
+        return ast.literal_eval(output)
     
-    def register_keypoints(self, keypoints, camera):
+    def register_keypoints(self, keypoints, camera, rekep_dir):
         """
         Args:
             keypoints (np.ndarray): keypoints in the world frame of shape (N, 3)
@@ -62,13 +92,14 @@ class ReKepEnv:
         self.keypoints = keypoints
         self._keypoint_registry = dict()
 
-        # Temporarily manually set keypoint indices based on query image
+        idx_obj_map = self._get_obj_idx_dict(rekep_dir)
+
+        # Set keypoint indices using index map from gpt-4o
         for i, k in enumerate(self.keypoints):
             obj = "none"
-            if i == 10:
-                obj = "eraser"
-            elif i == 13:
-                obj = "masking_tape"
+
+            if i in idx_obj_map.keys():
+                obj = idx_obj_map[i]
 
             img_coord = self.robot.convert_world_to_point(camera, k)
             self._keypoint_registry[i] = {"object": obj, 

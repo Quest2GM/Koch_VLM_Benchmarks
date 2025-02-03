@@ -97,7 +97,7 @@ class Main:
             self.program_info = json.load(f)
         self.applied_disturbance = {stage: False for stage in range(1, self.program_info['num_stages'] + 1)}
         # register keypoints to be tracked
-        self.env.register_keypoints(self.program_info['init_keypoint_positions'], self.camera)
+        self.env.register_keypoints(self.program_info['init_keypoint_positions'], self.camera, rekep_program_dir)
         # load constraints
         self.constraint_fns = dict()
         for stage in range(1, self.program_info['num_stages'] + 1):  # stage starts with 1
