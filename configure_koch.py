@@ -14,7 +14,6 @@ from roboticstoolbox import DHRobot, RevoluteDH
 import warnings
 warnings.filterwarnings("ignore")
 
-from threading import Lock
 import matplotlib.pyplot as plt
 from skimage.draw import disk
 
@@ -76,14 +75,6 @@ class KochRobot:
 
         time.sleep(1)
         self.curr_position = self.get_ee_pos()
-
-        # Display images
-        # plt.ion()
-        # self.fig, self.ax = plt.subplots()
-        # self.img_display = self.ax.imshow(np.zeros((10,10)))
-        # plt.title("Live Camera Feed")
-        # plt.axis("off")
-        # plt.show(block=False)
 
 
     def get_arm_joint_angles(self):
@@ -200,25 +191,23 @@ class KochRobot:
         q = self.inv_kin(pos)
 
         if verify_inv(q):
-            port_lock = Lock()
             q[1] *= -1
             curr_q = self.get_arm_joint_angles()
             interp = np.linspace(curr_q, q, num=steps) / (2 * np.pi) * 360
             for q_int in interp[1:]:
                 time.sleep(0.01)
-                with port_lock:
-                    self.robot.follower_arms["main"].write("Goal_Position", q_int)
+                self.robot.follower_arms["main"].write("Goal_Position", q_int)
             return True
         else:
             return False
 
     def set_gripper_open(self):
         self.q5 = 0
-        self.set_ee_pose(self.curr_position, axis=5, steps=50)
+        self.set_ee_pose(self.get_ee_pos(), axis=5, steps=50)
 
     def set_gripper_close(self):
         self.q5 = np.pi / 2
-        self.set_ee_pose(self.curr_position, axis=5, steps=50)
+        self.set_ee_pose(self.get_ee_pos(), axis=5, steps=50)
 
     def set_to_home(self):
         self.q4 = 0
@@ -295,6 +284,35 @@ class KochRobot:
         return
     
 
+    def get_point_to_world_conversion(self, camera):
+        
+        # Get limits of end-effector
+        x_limits, y_limits, z_limits = self.LLIM[0], self.LLIM[1], self.LLIM[2]
+        x_interp = np.linspace(x_limits[0], x_limits[1], num=100)
+        y_interp = np.linspace(y_limits[0], y_limits[1], num=100)
+        z_interp = np.linspace(z_limits[0], z_limits[1], num=100)
+
+        # Iterate through points
+        print("Getting point to world dict...")
+        t = time.time()
+        self.point_to_world = {}
+        for x in x_interp:
+            for y in y_interp:
+                for z in z_interp:
+                    point = self.convert_world_to_point(camera, [x, y, z])
+                    self.point_to_world[tuple(point)] = [x,y,z]
+        print("Time:", time.time() - t)
+        return self.point_to_world
+
+    def convert_world_to_point(self, cam_node, world_coord):
+        T = np.hstack((cam_node.R, cam_node.t))   # The saved t is converted from m to cm
+        P = np.array([[world_coord[0], world_coord[1], world_coord[2], 1]])
+        pc = T @ P.T
+        x_star = cam_node.K @ pc
+        x_star = x_star / x_star[2]
+        point = [int(np.rint(x_star[1])[0]), int(np.rint(x_star[0])[0])]
+        return point
+
     def return_estimated_ee(self, cam_node):
         """
         Get estimated pixel coordinate position of the end-effector.
@@ -302,18 +320,29 @@ class KochRobot:
 
         # Compute pixel coordinate
         new_world = self.get_ee_pos()
-        M = np.hstack((cam_node.R, cam_node.t * 100))   # The saved t is converted from m to cm
-        P = np.array([[new_world[0], new_world[1], new_world[2], 1]])
-        pc = M @ P.T
-        x_star = cam_node.K @ pc
-        x_star = x_star / x_star[2]
-        point = [int(np.rint(x_star[1])[0]), int(np.rint(x_star[0])[0])]
-
+        point = self.convert_world_to_point(cam_node, new_world)
         rgb = cam_node.capture_image("rgb")
         rr, cc = disk(point, 10, shape=rgb.shape)
         rgb[rr, cc] = (255, 255, 0)
 
         return rgb, point
+    
+    def find_closest_point_to_world(self, ref_point):
+
+        # Convert dictionary keys (pixel points) to a NumPy array for fast distance computation
+        pixel_points = np.array(list(self.point_to_world.keys()))
+        
+        # Compute Euclidean distances from ref_point to all pixel points
+        distances = np.linalg.norm(pixel_points - np.array(ref_point), axis=1)
+        
+        # Find the index of the closest pixel point
+        closest_index = np.argmin(distances)
+        
+        # Retrieve the closest pixel point and its corresponding world point
+        closest_pixel_point = tuple(pixel_points[closest_index])  # Convert back to tuple
+        corresponding_world_point = self.point_to_world[closest_pixel_point]
+
+        return corresponding_world_point
 
 
     def camera_extrinsics(self, cam_node):

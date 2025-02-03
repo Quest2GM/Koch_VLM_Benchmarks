@@ -6,7 +6,7 @@ import argparse
 from rekep.environment import ReKepEnv
 from rekep.keypoint_proposal import KeypointProposer
 from rekep.constraint_generation import ConstraintGenerator
-from rekep.ik_solver import IKSolver
+from rekep.ik_solver import KochIKSolver
 from rekep.subgoal_solver import SubgoalSolver
 from rekep.path_solver import PathSolver
 from rekep.visualizer import Visualizer
@@ -23,6 +23,7 @@ from rekep.utils import (
 
 from camera import ZEDCamera
 from vision_pipeline import SAM
+from configure_koch import KochRobot
 
 
 class Main:
@@ -41,50 +42,37 @@ class Main:
         # initialize keypoint proposer and constraint generator
         self.keypoint_proposer = KeypointProposer(global_config['keypoint_proposer'])
         self.constraint_generator = ConstraintGenerator(global_config['constraint_generator'])
-        
+
+        # Initialize robot and camera
+        self.robot = KochRobot(port="/dev/ttyACM0", torque=True)
+        self.camera = ZEDCamera()
+        self.sam = SAM()
+
+        # Get point to world conversion
+        self.robot.get_point_to_world_conversion(self.camera)
+
         # initialize environment (real world)
-        self.env = ReKepEnv(global_config['env'])
+        self.env = ReKepEnv(global_config['env'], self.robot, self.camera)
 
-        # ik_solver = KochIKSolver(
-        # )
+        # ik_solver
+        ik_solver = KochIKSolver(self.robot)
 
-        # ik_solver = IKSolver(
-        #     robot_description_path=self.env.robot.robot_arm_descriptor_yamls[self.env.robot.default_arm],
-        #     robot_urdf_path=self.env.robot.urdf_path,
-        #     eef_name=self.env.robot.eef_link_names[self.env.robot.default_arm],
-        #     reset_joint_pos=self.env.reset_joint_pos,
-        #     world2robot_homo=self.env.world2robot_homo,
-        # )
-        
         # initialize solvers
-        ik_solver = None
-        reset_joint_pos = None
-        # self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
-        # self.path_solver = PathSolver(global_config['path_solver'], ik_solver, reset_joint_pos)
+        solve_opt = True # False = solve with direct ik to poses, True = solve with optimization
+        if solve_opt:
+            reset_joint_pos = self.env.get_arm_joint_positions()
+            self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
+            self.path_solver = PathSolver(global_config['path_solver'], ik_solver, reset_joint_pos)
         
         # initialize visualizer
         self.visualizer = Visualizer(global_config['visualizer'], self.env)
         self.visualize = True
-
-        # Initialize robot and camera
-        # self.robot = KochRobot(port="/dev/ttyACM0", torque=True)
-        self.camera = ZEDCamera()
-        self.sam = SAM()
 
 
     def perform_task(self, instruction, rekep_program_dir=None, disturbance_seq=None):
         rgb = self.camera.capture_image("rgb")
         points = self.camera.pixel_to_3d_points()
         mask = self.sam.generate(rgb)
-
-        # Visualize masks
-        # from PIL import Image
-        # for i, m in enumerate(mask):
-        #     Image.fromarray(m).convert("RGB").save(f"{i}.png")
-        # assert False
-        # print(rgb.shape, type(rgb), rgb)
-        # print(points.shape, type(points), points)
-        # print(mask[0].shape, type(mask[0]), mask[0])
 
         # ====================================
         # = keypoint proposal and constraint generation
@@ -109,7 +97,7 @@ class Main:
             self.program_info = json.load(f)
         self.applied_disturbance = {stage: False for stage in range(1, self.program_info['num_stages'] + 1)}
         # register keypoints to be tracked
-        self.env.register_keypoints(self.program_info['init_keypoint_positions'])
+        self.env.register_keypoints(self.program_info['init_keypoint_positions'], self.camera)
         # load constraints
         self.constraint_fns = dict()
         for stage in range(1, self.program_info['num_stages'] + 1):  # stage starts with 1
@@ -131,73 +119,37 @@ class Main:
             scene_keypoints = self.env.get_keypoint_positions()
             self.keypoints = np.concatenate([[self.env.get_ee_pos()], scene_keypoints], axis=0)  # first keypoint is always the ee
             self.curr_ee_pose = self.env.get_ee_pose()
-            self.curr_joint_pos = self.env.get_arm_joint_postions()
+            self.curr_joint_pos = self.env.get_arm_joint_positions()
             self.sdf_voxels = self.env.get_sdf_voxels(self.config['sdf_voxel_size'])
-            self.collision_points = self.env.get_collision_points()
-            # ====================================
-            # = decide whether to backtrack
-            # ====================================
-            backtrack = False
-            if self.stage > 1:
-                path_constraints = self.constraint_fns[self.stage]['path']
-                for constraints in path_constraints:
-                    violation = constraints(self.keypoints[0], self.keypoints[1:])
-                    if violation > self.config['constraint_tolerance']:
-                        backtrack = True
-                        break
-            if backtrack:
-                # determine which stage to backtrack to based on constraints
-                for new_stage in range(self.stage - 1, 0, -1):
-                    path_constraints = self.constraint_fns[new_stage]['path']
-                    # if no constraints, we can safely backtrack
-                    if len(path_constraints) == 0:
-                        break
-                    # otherwise, check if all constraints are satisfied
-                    all_constraints_satisfied = True
-                    for constraints in path_constraints:
-                        violation = constraints(self.keypoints[0], self.keypoints[1:])
-                        if violation > self.config['constraint_tolerance']:
-                            all_constraints_satisfied = False
-                            break
-                    if all_constraints_satisfied:   
-                        break
-                print(f"{bcolors.HEADER}[stage={self.stage}] backtrack to stage {new_stage}{bcolors.ENDC}")
-                self._update_stage(new_stage)
-            else:
-                # ====================================
-                # = get optimized plan
-                # ====================================
-                next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
-                next_path = self._get_next_path(next_subgoal, from_scratch=self.first_iter)
-                self.first_iter = False
-                self.action_queue = next_path.tolist()
-                self.last_sim_step_counter = self.env.step_counter
+            self.collision_points = self.env.get_collision_points() ## ???
 
-                # ====================================
-                # = execute
-                # ====================================
-                # determine if we proceed to the next stage
-                count = 0
-                while len(self.action_queue) > 0 and count < self.config['action_steps_per_iter']:
-                    next_action = self.action_queue.pop(0)
-                    precise = len(self.action_queue) == 0
-                    self.env.execute_action(next_action, precise=precise)
-                    count += 1
-                if len(self.action_queue) == 0:
-                    if self.is_grasp_stage:
-                        self._execute_grasp_action()
-                    elif self.is_release_stage:
-                        self._execute_release_action()
-                    # if completed, save video and return
-                    if self.stage == self.program_info['num_stages']: 
-                        self.env.sleep(2.0)
-                        save_path = self.env.save_video()
-                        print(f"{bcolors.OKGREEN}Video saved to {save_path}\n\n{bcolors.ENDC}")
-                        return
-                    # progress to next stage
-                    self._update_stage(self.stage + 1)
+            # ====================================
+            # = get optimized plan
+            # ====================================
+            next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
+            print(next_subgoal, self.robot.get_ee_pose())
+            next_path = self._get_next_path(next_subgoal, from_scratch=self.first_iter)
+            print("Next path:", next_path, next_path.shape)
+            self.first_iter = False
+            self.action_queue = next_path.tolist()
+
+            # ====================================
+            # = execute
+            # ====================================
+            # determine if we proceed to the next stage
+            self.env.execute_action(self.action_queue)
+
+            if self.is_grasp_stage:
+                self._execute_grasp_action()
+            elif self.is_release_stage:
+                self._execute_release_action()
+
+            # progress to next stage
+            self._update_stage(self.stage + 1)
+
 
     def _get_next_subgoal(self, from_scratch):
+        print("getting next subgoal...")
         subgoal_constraints = self.constraint_fns[self.stage]['subgoal']
         path_constraints = self.constraint_fns[self.stage]['path']
         subgoal_pose, debug_dict = self.subgoal_solver.solve(self.curr_ee_pose,
@@ -221,6 +173,7 @@ class Main:
         return subgoal_pose
 
     def _get_next_path(self, next_subgoal, from_scratch):
+        print("getting next path...")
         path_constraints = self.constraint_fns[self.stage]['path']
         path, debug_dict = self.path_solver.solve(self.curr_ee_pose,
                                                     next_subgoal,
@@ -266,7 +219,8 @@ class Main:
         self.action_queue = []
         # update keypoint movable mask
         self._update_keypoint_movable_mask()
-        self.first_iter = True
+        if stage == 1:
+            self.first_iter = True
 
     def _update_keypoint_movable_mask(self):
         for i in range(1, len(self.keypoint_movable_mask)):  # first keypoint is ee so always movable
@@ -278,6 +232,7 @@ class Main:
         grasp_pose = pregrasp_pose.copy()
         grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ np.array([self.config['grasp_depth'], 0, 0])
         grasp_action = np.concatenate([grasp_pose, [self.env.get_gripper_close_action()]])
+        grasp_action = grasp_action.reshape(1, -1)
         self.env.execute_action(grasp_action, precise=True)
     
     def _execute_release_action(self):
@@ -293,9 +248,8 @@ if __name__ == "__main__":
     task_list = {
         'pen': {
             'scene_file': './configs/og_scene_file_red_pen.json',
-            # 'instruction': 'reorient the red pen and drop it upright into the black pen holder',
-            'instruction': 'pick up black pen and drop it into the masking tape',
-            'rekep_program_dir': './rekep/vlm_query/2025-01-09_22-59-38_pick_up_black_pen_and_drop_it_into_the_masking_tape'
+            'instruction': 'pick up eraser and drop it into the masking tape',
+            'rekep_program_dir': './rekep/vlm_query/2025-01-31_16-19-13_pick_up_eraser_and_drop_it_into_the_masking_tape'
             },
     }
     task = task_list['pen']
