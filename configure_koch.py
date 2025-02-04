@@ -195,8 +195,9 @@ class KochRobot:
             curr_q = self.get_arm_joint_angles()
             interp = np.linspace(curr_q, q, num=steps) / (2 * np.pi) * 360
             for q_int in interp[1:]:
-                time.sleep(0.01)
+                time.sleep(0.005)
                 self.robot.follower_arms["main"].write("Goal_Position", q_int)
+                self.curr_position = self.get_ee_pos()
             return True
         else:
             return False
@@ -319,7 +320,7 @@ class KochRobot:
         """
 
         # Compute pixel coordinate
-        new_world = self.get_ee_pos()
+        new_world = self.curr_position
         point = self.convert_world_to_point(cam_node, new_world)
         rgb = cam_node.capture_image("rgb")
         rr, cc = disk(point, 10, shape=rgb.shape)
