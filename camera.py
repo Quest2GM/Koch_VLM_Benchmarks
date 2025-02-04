@@ -34,7 +34,6 @@ class ZEDCamera:
         try:
             x = np.load("camera_extrinsics.npy", allow_pickle=True)
             self.R, self.t = x[0].reshape(3,3), x[1].reshape(3,1)
-            self.t /= 100 # Convert from cm to m
             self.loaded_extrinsics = True
         except:
             print("Failed to load extrinsics.")
