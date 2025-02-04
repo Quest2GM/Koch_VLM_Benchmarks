@@ -27,6 +27,9 @@ from configure_koch import KochRobot
 
 from openai import OpenAI
 import ast, time
+import cv2
+import threading
+from skimage.draw import disk
 
 class Main:
     def __init__(self, scene_file, visualize=False):
@@ -75,6 +78,11 @@ class Main:
         # OpenAI client
         self.ai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
+        self.terminate = False
+
+        self.video_save = []
+        self.subgoal_idxs = []
+
 
     def perform_task(self, instruction, rekep_program_dir=None, disturbance_seq=None):
         rgb = self.camera.capture_image("rgb")
@@ -95,7 +103,20 @@ class Main:
         # ====================================
         # = execute
         # ====================================
-        self._execute(rekep_program_dir, disturbance_seq)
+        # Create threads
+        thread1 = threading.Thread(target=self._execute, args=(rekep_program_dir,))
+        thread2 = threading.Thread(target=self._record_video)
+
+        # # Start threads
+        thread1.start()
+        thread2.start()
+
+        # # Wait until both threads complete
+        thread1.join()
+        thread2.join()
+
+        # Cleanup
+        self.robot.exit()
 
 
     def _get_all_subgoals(self, task_dir):
@@ -136,9 +157,35 @@ class Main:
         output = output.replace("```", "").replace("python", "")
 
         return ast.literal_eval(output)
+    
+
+    def _record_video(self):
+
+        # Wait until subgoal idxs is filled
+        while len(self.subgoal_idxs) == 0:
+            continue
+        
+        # Record video
+        rgb = self.camera.capture_image("rgb")
+        height, width, _ = rgb.shape
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can use 'XVID' for AVI
+        out = cv2.VideoWriter("saved_video.mp4", fourcc, 20, (width, height))
+
+        while not self.terminate:
+            rgb = self.camera.capture_image("rgb")
+            _, point = self.robot.return_estimated_ee(self.camera)
+            print(point)
+            rr, cc = disk(point, 20, shape=rgb.shape)
+            rgb[rr, cc] = (255, 255, 0)
+            cv2.imwrite("rgb.png", rgb)
+            out.write(rgb)
+
+        # Save video
+        out.release()
+        print(f"Video saved at saved_video.mp4!")
 
 
-    def _execute(self, rekep_program_dir, disturbance_seq=None):
+    def _execute(self, rekep_program_dir):
         # load metadata
         with open(os.path.join(rekep_program_dir, 'metadata.json'), 'r') as f:
             self.program_info = json.load(f)
@@ -160,7 +207,7 @@ class Main:
         self.keypoint_movable_mask[0] = True  # first keypoint is always the ee, so it's movable
 
         if not self.subgoal_opt:
-            subgoal_idxs = self._get_all_subgoals(rekep_program_dir)
+            self.subgoal_idxs = self._get_all_subgoals(rekep_program_dir)
 
         # main loop
         self._update_stage(1)
@@ -180,7 +227,7 @@ class Main:
             if self.subgoal_opt:
                 next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
             else:
-                next_subgoal = np.concatenate([self.keypoints[subgoal_idxs[self.stage - 1] + 1], \
+                next_subgoal = np.concatenate([self.keypoints[self.subgoal_idxs[self.stage - 1] + 1], \
                                                curr_pose[3:]])
                 if self.stage == 2:
                     next_subgoal[2] += 5
@@ -214,6 +261,7 @@ class Main:
             # End condition
             if self.stage == self.program_info['num_stages']: 
                 self.env.sleep(2.0)
+                self.terminate = True
                 print("Finished!")
                 return
 
