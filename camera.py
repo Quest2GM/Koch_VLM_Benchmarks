@@ -34,7 +34,6 @@ class ZEDCamera:
         try:
             x = np.load("camera_extrinsics.npy", allow_pickle=True)
             self.R, self.t = x[0].reshape(3,3), x[1].reshape(3,1)
-            self.t /= 100 # Convert from cm to m
             self.loaded_extrinsics = True
         except:
             print("Failed to load extrinsics.")
@@ -141,7 +140,7 @@ class ZEDCamera:
             x1, y1, x2, y2 = bbox
             frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
 
-        # cv2.imwrite("calib.png", frame)
+        cv2.imwrite("calib.png", frame)
 
         return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
 
