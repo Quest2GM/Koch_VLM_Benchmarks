@@ -25,6 +25,8 @@ from camera import ZEDCamera
 from vision_pipeline import SAM
 from configure_koch import KochRobot
 
+from openai import OpenAI
+import ast, time
 
 class Main:
     def __init__(self, scene_file, visualize=False):
@@ -59,14 +61,19 @@ class Main:
 
         # initialize solvers
         reset_joint_pos = self.env.get_arm_joint_positions()
-        self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
+        self.subgoal_opt = False   # can choose to optimize subgoal or directly go to keypoint positions
         self.path_opt = False   # can choose to optimize path or directly interpolate to save time
+        if self.subgoal_opt:
+            self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
         if self.path_opt:
             self.path_solver = PathSolver(global_config['path_solver'], ik_solver, reset_joint_pos)
         
         # initialize visualizer
         self.visualizer = Visualizer(global_config['visualizer'], self.env)
         self.visualize = False
+
+        # OpenAI client
+        self.ai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
 
     def perform_task(self, instruction, rekep_program_dir=None, disturbance_seq=None):
@@ -91,6 +98,46 @@ class Main:
         self._execute(rekep_program_dir, disturbance_seq)
 
 
+    def _get_all_subgoals(self, task_dir):
+
+        # save prompt
+        with open(os.path.join(task_dir, 'output_raw.txt'), 'r') as f:
+            prompt_1 = f.read()
+
+        prompt_2 = "Without providing any explanation, return an python integer \
+                    list that has the keypoint indices that the end-effector needs to be at \
+                    for each stage."
+            
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt_1 + ".\n" + prompt_2
+                    },
+                ]
+            }
+        ]
+
+        stream = self.ai_client.chat.completions.create(model='gpt-4o',
+                                                        messages=messages,
+                                                        temperature=0.0,
+                                                        max_tokens=2048,
+                                                        stream=True)
+        output = ""
+        start = time.time()
+        for chunk in stream:
+            print(f'[{time.time()-start:.2f}s] Querying OpenAI API...', end='\r')
+            if chunk.choices[0].delta.content is not None:
+                output += chunk.choices[0].delta.content
+        print(f'[{time.time()-start:.2f}s] Querying OpenAI API...Done')
+
+        output = output.replace("```", "").replace("python", "")
+
+        return ast.literal_eval(output)
+
+
     def _execute(self, rekep_program_dir, disturbance_seq=None):
         # load metadata
         with open(os.path.join(rekep_program_dir, 'metadata.json'), 'r') as f:
@@ -112,6 +159,9 @@ class Main:
         self.keypoint_movable_mask = np.zeros(self.program_info['num_keypoints'] + 1, dtype=bool)
         self.keypoint_movable_mask[0] = True  # first keypoint is always the ee, so it's movable
 
+        if not self.subgoal_opt:
+            subgoal_idxs = self._get_all_subgoals(rekep_program_dir)
+
         # main loop
         self._update_stage(1)
         while True:
@@ -125,8 +175,17 @@ class Main:
             # ====================================
             # = get optimized plan
             # ====================================
-            next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
-            print("Current pose:", self.robot.get_ee_pose()[0])
+            curr_pose = self.robot.get_ee_pose()[0]
+            print("Current pose:", curr_pose)
+            if self.subgoal_opt:
+                next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
+            else:
+                next_subgoal = np.concatenate([self.keypoints[subgoal_idxs[self.stage - 1] + 1], \
+                                               curr_pose[3:]])
+                if self.stage == 2:
+                    next_subgoal[2] += 5
+                subgoal_pose_homo = T.convert_pose_quat2mat(next_subgoal)
+                next_subgoal[:3] += subgoal_pose_homo[:3, :3] @ np.array([-self.config['grasp_depth'] / 3, 0, -self.config['grasp_depth'] / 2.0])
             print("Next subgoal:", next_subgoal)
 
             # Optimize path, otherwise do direct interpolation
@@ -135,7 +194,7 @@ class Main:
             else:
                 num_points = 100
                 next_path = np.zeros((num_points, 8))
-                goal_lin = np.linspace(self.robot.get_ee_pose()[0], next_subgoal, num=num_points)
+                goal_lin = np.linspace(curr_pose, next_subgoal, num=num_points)
                 next_path[:, :7] = goal_lin
 
             self.first_iter = False
@@ -243,9 +302,9 @@ class Main:
 
     def _execute_grasp_action(self):
         pregrasp_pose = self.env.get_ee_pose()
-        grasp_pose = pregrasp_pose.copy()
-        grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ np.array([self.config['grasp_depth'], 0, 0])
-        grasp_action = np.concatenate([grasp_pose, [self.env.get_gripper_close_action()]])
+        # grasp_pose = pregrasp_pose.copy()
+        # grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ np.array([self.config['grasp_depth'], 0, 0])
+        grasp_action = np.concatenate([pregrasp_pose, [self.env.get_gripper_close_action()]])
         grasp_action = grasp_action.reshape(1, -1)
         self.env.execute_action(grasp_action, precise=True)
     
