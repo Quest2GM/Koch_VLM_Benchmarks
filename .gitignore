@@ -155,4 +155,3 @@ dmypy.json
 cython_debug/
 
 # Images
-*.png
