@@ -29,7 +29,7 @@ from openai import OpenAI
 import ast, time
 import cv2
 import threading
-from skimage.draw import disk
+from skimage.draw import disk, line
 
 class Main:
     def __init__(self, scene_file, visualize=False):
@@ -161,6 +161,19 @@ class Main:
 
     def _record_video(self):
 
+        # Functions to add point/line to image
+        def add_point_to_rgb(rgb, point, color=(255, 255, 0)):
+            rr, cc = disk(point, 20, shape=rgb.shape)
+            rgb[rr, cc] = color
+            return rgb
+        
+        def add_line_to_rgb(rgb, start, end, color=(0, 255, 0)):
+            rr, cc = line(start[0], start[1], end[0], end[1])
+            for r, c in zip(rr, cc):
+                rr_disk, cc_disk = disk((r, c), radius=5)
+                rgb[rr_disk, cc_disk] = color
+            return rgb
+
         # Wait until subgoal idxs is filled
         while len(self.subgoal_idxs) == 0:
             continue
@@ -173,11 +186,22 @@ class Main:
 
         while not self.terminate:
             rgb = self.camera.capture_image("rgb")
-            _, point = self.robot.return_estimated_ee(self.camera)
-            print(point)
-            rr, cc = disk(point, 20, shape=rgb.shape)
-            rgb[rr, cc] = (255, 255, 0)
-            cv2.imwrite("rgb.png", rgb)
+
+            # Get ee location
+            _, ee_point = self.robot.return_estimated_ee(self.camera)
+
+            # Add line between point stages
+            subgoal_point = self.env._keypoint_registry[self.subgoal_idxs[self.stage - 1]]["img_coord"]
+            rgb = add_line_to_rgb(rgb, ee_point, subgoal_point, color=(0, 255, 0))
+
+            # Add end effector point
+            rgb = add_point_to_rgb(rgb, ee_point, color=(255, 255, 0))
+            
+            # Add relevant keypoints
+            for s in self.subgoal_idxs:
+                sub_point = self.env._keypoint_registry[s]["img_coord"]                
+                rgb = add_point_to_rgb(rgb, sub_point, color=(0, 0, 255))
+
             out.write(rgb)
 
         # Save video
