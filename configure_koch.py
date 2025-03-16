@@ -53,7 +53,7 @@ class KochRobot:
         self.OFFSET = [0, 0, 0, np.pi/2, 0]
         QLIM = [[-np.pi/2, np.pi/2], [0, np.pi/2], [-np.pi/2, np.pi/2],\
                 [-np.pi/2, np.pi/2], [-np.pi, np.pi]]
-        self.LLIM = [[8, 17], [-15, 15], [1, 20], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
+        self.LLIM = [[8, 18], [-15, 15], [1, 20], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
         
         # Initial EE angles
         self.q4, self.q5 = 0, np.pi / 2
