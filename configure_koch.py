@@ -358,6 +358,12 @@ class KochRobot:
                       [17.46, 15, 8]]
         calibration_poses, calibration_coords = [], []
 
+        # Write video
+        coords, frame = cam_node.detect_end_effector()
+        height, width, _ = frame.shape
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can use 'XVID' for AVI
+        out = cv2.VideoWriter("calibration.mp4", fourcc, 20, (width, height))
+
         for final_position in move_poses:
             
             # Generate positions from current position to end position
@@ -369,17 +375,24 @@ class KochRobot:
 
             # Move end effector to goal
             print("Sending to goal...")
+            
             for i, g in enumerate(grad_poses):
                 time.sleep(0.02)
                 self.set_ee_pose(g, axis=0, steps=2)
 
                 # Get end-effector coordinates from the blue object
-                coords = cam_node.detect_end_effector()
+                coords, frame = cam_node.detect_end_effector()
                 calibration_coords += [coords]
-                calibration_poses += [grad_poses[i]]                
+                calibration_poses += [grad_poses[i]]
+
+                # Add frame and save video
+                out.write(frame)       
 
             print("Reached!")
             time.sleep(1)   # wait before capturing picture
+        
+        # Save video
+        out.release()
 
         calibration_poses = np.array(calibration_poses).reshape(-1,3).astype(np.float32)
         calibration_coords = np.array(calibration_coords).reshape(-1,2).astype(np.float32)
