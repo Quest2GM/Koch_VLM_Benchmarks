@@ -1,0 +1,6 @@
+def stage1_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the eraser (keypoint 3)."""
+    eraser_position = keypoints[3]
+    cost = np.linalg.norm(end_effector - eraser_position)
+    return cost
+
