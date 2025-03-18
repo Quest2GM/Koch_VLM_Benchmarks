@@ -5,7 +5,7 @@ This repository aims to reproduce the results of recent publications that use vi
 Note: The koch v1-1 has only 5DoF, which may be limiting for more complex experiments. For future projects, I would recommend a low-cost 6DoF robot (ex. [Simple Automation](https://docs.google.com/spreadsheets/d/1i-t-i7dLayyafxtfTy8_VctcmbbnCp6Mays1JUR9Qg4/edit?gid=47726668#gid=47726668)).
 
 ## Koch v1.1 Manipulator
-Please follow the build instructions found on the [original repository](https://github.com/jess-moss/koch-v1-1?tab=readme-ov-file#assembly-instructions).
+Please follow the build instructions found on the [original repository](https://github.com/jess-moss/koch-v1-1?tab=readme-ov-file#assembly-instructions). Additionally, follow the [lerobot example](https://github.com/huggingface/lerobot/blob/main/examples/7_get_started_with_real_robot.md) for running the code.
 
 To simplify the forward and inverse kinematics, I set θ₄=π/2. This is good enough to achieve most pick-and-place tasks.
 
@@ -35,7 +35,5 @@ https://github.com/user-attachments/assets/3496987d-d6bc-4b77-9a39-7f86e06efc25
 https://github.com/user-attachments/assets/f0b55d51-8e67-4500-9fd6-8f15c189fb1c
 
 
-
-
-
-
+### [Pi0](https://github.com/Physical-Intelligence/openpi)
+TBD
