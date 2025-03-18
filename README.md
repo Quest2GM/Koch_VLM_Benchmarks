@@ -29,7 +29,7 @@ To simplify the forward and inverse kinematics, I set θ₄=π/2. This is good e
 https://github.com/user-attachments/assets/99434062-c455-40b1-b682-657e4cad514d
 
 #### Experiment 2: Chess
-https://github.com/user-attachments/assets/2dc40533-c974-455f-9675-3e68a79441fe
+https://github.com/user-attachments/assets/3496987d-d6bc-4b77-9a39-7f86e06efc25
 
 #### Experiment 3: Block Stacking
 https://github.com/user-attachments/assets/f0b55d51-8e67-4500-9fd6-8f15c189fb1c
