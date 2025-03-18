@@ -43,6 +43,8 @@ class ReKepEnv:
 
         # Extract keypoint-object associations from comments
         matches = re.findall(r'(\w+)\s*\(keypoint\s*(\d+)\)', self.prompt)
+        # matches = re.findall(r'((?:small|large) (?:red|blue|black) cube)\s*\(keypoint\s*(\d+)\)', self.prompt)
+        # matches = re.findall(r'(white king|black king|box)\s*\(keypoint\s*(\d+)\)', self.prompt)
 
         # Generate dictionary dynamically
         keypoint_objects = {int(kp): obj.replace(" ", "_") for obj, kp in matches}
@@ -107,8 +109,8 @@ class ReKepEnv:
                 obj["img_coord"] = list(curr_point)
                 obj["on_grasp_coord"] = list(ee_point)
 
-                # Convert updated coord to camera
-                obj["keypoint"] = self.robot.find_closest_point_to_world(obj["img_coord"])
+            # Convert updated coord to camera
+            obj["keypoint"] = self.robot.find_closest_point_to_world(obj["img_coord"])
             
             # NOTE: keypoint positions may be inaccurate due to noisy ZED camera
             keypoint_positions.append(obj["keypoint"])
