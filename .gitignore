@@ -156,4 +156,4 @@ cython_debug/
 
 # Images
 *.png
-!rekep/vlm_query/*.png
+!rekep/vlm_query/*/*.png
