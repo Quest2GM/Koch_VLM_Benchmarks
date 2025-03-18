@@ -73,7 +73,7 @@ class Main:
         
         # initialize visualizer
         self.visualizer = Visualizer(global_config['visualizer'], self.env)
-        self.visualize = False
+        self.visualize = True
 
         # OpenAI client
         self.ai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
@@ -167,6 +167,28 @@ class Main:
             rgb[rr, cc] = color
             return rgb
         
+        def _project_keypoints_to_img(rgb):
+
+            projected = rgb.copy()
+
+            for idx in self.env._keypoint_registry:
+                kr = self.env._keypoint_registry[idx]
+                if kr["object"] != "none":
+                    pixel = kr["img_coord"]
+                    displayed_text = str(idx)
+                    text_length = len(displayed_text)
+                    # draw a box
+                    box_width = 30 + 10 * (text_length - 1)
+                    box_height = 30
+                    cv2.rectangle(projected, (pixel[1] - box_width // 2, pixel[0] - box_height // 2), (pixel[1] + box_width // 2, pixel[0] + box_height // 2), (255, 255, 255), -1)
+                    cv2.rectangle(projected, (pixel[1] - box_width // 2, pixel[0] - box_height // 2), (pixel[1] + box_width // 2, pixel[0] + box_height // 2), (0, 0, 0), 2)
+                    # draw text
+                    org = (pixel[1] - 7 * (text_length), pixel[0] + 7)
+                    color = (255, 0, 0)
+                    cv2.putText(projected, displayed_text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+            return projected
+        
         def add_line_to_rgb(rgb, start, end, color=(0, 255, 0)):
             rr, cc = line(start[0], start[1], end[0], end[1])
             for r, c in zip(rr, cc):
@@ -198,9 +220,7 @@ class Main:
             rgb = add_point_to_rgb(rgb, ee_point, color=(255, 255, 0))
             
             # Add relevant keypoints
-            for s in self.subgoal_idxs:
-                sub_point = self.env._keypoint_registry[s]["img_coord"]                
-                rgb = add_point_to_rgb(rgb, sub_point, color=(0, 0, 255))
+            rgb = _project_keypoints_to_img(rgb)
 
             out.write(rgb)
 
@@ -247,17 +267,22 @@ class Main:
             # = get optimized plan
             # ====================================
             curr_pose = self.robot.get_ee_pose()[0]
+            print("Stage:", self.stage)
             print("Current pose:", curr_pose)
             if self.subgoal_opt:
                 next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
             else:
                 next_subgoal = np.concatenate([self.keypoints[self.subgoal_idxs[self.stage - 1] + 1], \
                                                curr_pose[3:]])
-                if self.stage == 2:
-                    next_subgoal[2] += 5
+
+                # OFFSET CODE
+
+                grasp_offset = np.array([0, 0, 0])
                 subgoal_pose_homo = T.convert_pose_quat2mat(next_subgoal)
-                next_subgoal[:3] += subgoal_pose_homo[:3, :3] @ np.array([-self.config['grasp_depth'] / 3, 0, -self.config['grasp_depth'] / 2.0])
+                next_subgoal[:3] += subgoal_pose_homo[:3, :3] @ grasp_offset
+
             print("Next subgoal:", next_subgoal)
+            # input("waiting...")
 
             # Optimize path, otherwise do direct interpolation
             if self.path_opt:
@@ -391,13 +416,23 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     task_list = {
-        'pen': {
+        'eraser': {
             'scene_file': './configs/og_scene_file_red_pen.json',
             'instruction': 'pick up eraser and drop it into the masking tape',
-            'rekep_program_dir': './rekep/vlm_query/2025-01-31_16-19-13_pick_up_eraser_and_drop_it_into_the_masking_tape'
+            'rekep_program_dir': './rekep/vlm_query/2025-03-16_19-54-00_pick_up_eraser_and_drop_it_into_the_masking_tape'
             },
+        'chess': {
+            'scene_file': './configs/og_scene_file_red_pen.json',
+            'instruction': 'place the white king and black king into the box. choose one keypoint for the box',
+            'rekep_program_dir': './rekep/vlm_query/2025-03-16_17-16-45_place_the_white_king_and_black_king_into_the_box._choose_one_keypoint_for_the_box'
+            },
+        'stack': {
+            'scene_file': './configs/og_scene_file_red_pen.json',
+            'instruction': 'place the three small cubes onto the respective large cubes with similar color',
+            'rekep_program_dir': './rekep/vlm_query/2025-03-15_17-03-59_place_the_three_small_cubes_onto_the_respective_large_cubes_with_similar_color'
+        },
     }
-    task = task_list['pen']
+    task = task_list['eraser']
     scene_file = task['scene_file']
     instruction = task['instruction']
     main = Main(scene_file, visualize=args.visualize)
