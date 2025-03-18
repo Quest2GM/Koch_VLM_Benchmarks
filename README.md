@@ -25,3 +25,8 @@ To simplify the forward and inverse kinematics, I set θ₄=π/2. This is good e
 ## Sample Demos
 ### [ReKep](https://rekep-robot.github.io/)
 
+
+
+https://github.com/user-attachments/assets/d2eddebe-d53b-4147-abc2-43f6c37460cf
+
+
