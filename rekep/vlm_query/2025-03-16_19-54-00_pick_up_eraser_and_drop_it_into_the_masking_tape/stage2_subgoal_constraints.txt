@@ -1,0 +1,7 @@
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """The eraser (keypoint 3) is inside the masking tape (keypoint 8)."""
+    masking_tape_position = keypoints[8]
+    eraser_position = keypoints[3]
+    cost = np.linalg.norm(eraser_position - masking_tape_position)
+    return cost
+

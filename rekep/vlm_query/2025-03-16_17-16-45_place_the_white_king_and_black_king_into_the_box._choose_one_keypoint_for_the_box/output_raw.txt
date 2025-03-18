@@ -1,0 +1,51 @@
+```python
+# The task involves placing the white king and black king into the box. 
+# This requires four stages: 
+# 1. Grasp the white king.
+# 2. Place the white king into the box.
+# 3. Grasp the black king.
+# 4. Place the black king into the box.
+
+num_stages = 4
+
+### stage 1 sub-goal constraints
+def stage1_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the white king (keypoint 6)."""
+    return np.linalg.norm(end_effector - keypoints[6])
+
+### stage 1 path constraints
+# No path constraints needed for grasping.
+
+### stage 2 sub-goal constraints
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """Place the white king into the box (keypoint 13)."""
+    offsetted_point = keypoints[13] + np.array([0, 0, 10])  # 10cm above the box
+    return np.linalg.norm(keypoints[6] - offsetted_point)
+
+### stage 2 path constraints
+def stage2_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the white king."""
+    return get_grasping_cost_by_keypoint_idx(6)
+
+### stage 3 sub-goal constraints
+def stage3_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the black king (keypoint 8)."""
+    return np.linalg.norm(end_effector - keypoints[8])
+
+### stage 3 path constraints
+# No path constraints needed for grasping.
+
+### stage 4 sub-goal constraints
+def stage4_subgoal_constraint1(end_effector, keypoints):
+    """Place the black king into the box (keypoint 13)."""
+    offsetted_point = keypoints[13] + np.array([0, 0, 10])  # 10cm above the box
+    return np.linalg.norm(keypoints[8] - offsetted_point)
+
+### stage 4 path constraints
+def stage4_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the black king."""
+    return get_grasping_cost_by_keypoint_idx(8)
+
+grasp_keypoints = [6, -1, 8, -1]
+release_keypoints = [-1, 6, -1, 8]
+```

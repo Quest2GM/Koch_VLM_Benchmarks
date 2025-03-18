@@ -110,6 +110,7 @@ class KeypointProposer:
         patch_w = int(W // self.patch_size)
         new_H = patch_h * self.patch_size
         new_W = patch_w * self.patch_size
+        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
         transformed_rgb = cv2.resize(rgb, (new_W, new_H))
         transformed_rgb = transformed_rgb.astype(np.float32) / 255.0  # float32 [H, W, 3]
         # shape info

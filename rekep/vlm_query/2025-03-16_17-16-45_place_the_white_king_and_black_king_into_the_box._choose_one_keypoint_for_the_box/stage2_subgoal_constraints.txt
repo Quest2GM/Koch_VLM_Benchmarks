@@ -1,0 +1,5 @@
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """Place the white king into the box (keypoint 13)."""
+    offsetted_point = keypoints[13] + np.array([0, 0, 10])  # 10cm above the box
+    return np.linalg.norm(keypoints[6] - offsetted_point)
+

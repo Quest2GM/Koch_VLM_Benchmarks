@@ -4,7 +4,7 @@ seed: &seed 0
 main:
   interpolate_pos_step_size: &interpolate_pos_step_size 0.05  # controls the density of the final returned path
   interpolate_rot_step_size: &interpolate_rot_step_size 0.34  # about 20 degrees
-  grasp_depth: 0.10
+  grasp_depth: 9
   constraint_tolerance: 0.10  # for backtracking
   bounds_min: &bounds_min [8, -15, 1]
   bounds_max: &bounds_max [17, 15, 20]
@@ -93,7 +93,7 @@ subgoal_solver:
 
 keypoint_proposer:
   num_candidates_per_mask: 5
-  min_dist_bt_keypoints: 0.06
+  min_dist_bt_keypoints: 0.05
   max_mask_ratio: 0.5
   device: *device
   bounds_min: *bounds_min

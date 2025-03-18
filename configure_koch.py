@@ -53,7 +53,7 @@ class KochRobot:
         self.OFFSET = [0, 0, 0, np.pi/2, 0]
         QLIM = [[-np.pi/2, np.pi/2], [0, np.pi/2], [-np.pi/2, np.pi/2],\
                 [-np.pi/2, np.pi/2], [-np.pi, np.pi]]
-        self.LLIM = [[8, 17], [-15, 15], [1, 20], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
+        self.LLIM = [[8, 18], [-15, 15], [1, 20], [], [-np.pi/2, np.pi/2], [0, np.pi/2]]
         
         # Initial EE angles
         self.q4, self.q5 = 0, np.pi / 2
@@ -171,7 +171,7 @@ class KochRobot:
         q3 = np.arctan2(np.sqrt(1-D**2), D) - phi_4
         phi_3 = np.pi - q3 - phi_4
 
-        Q = [-q1, -q2, q3, np.pi/2, self.q4, self.q5]
+        Q = [-q1, -q2, q3, np.pi/2, -q1, self.q5]
 
         return np.array(Q)
     
@@ -195,8 +195,9 @@ class KochRobot:
             curr_q = self.get_arm_joint_angles()
             interp = np.linspace(curr_q, q, num=steps) / (2 * np.pi) * 360
             for q_int in interp[1:]:
-                time.sleep(0.01)
+                time.sleep(0.005)
                 self.robot.follower_arms["main"].write("Goal_Position", q_int)
+                self.curr_position = self.get_ee_pos()
             return True
         else:
             return False
@@ -319,7 +320,7 @@ class KochRobot:
         """
 
         # Compute pixel coordinate
-        new_world = self.get_ee_pos()
+        new_world = self.curr_position
         point = self.convert_world_to_point(cam_node, new_world)
         rgb = cam_node.capture_image("rgb")
         rr, cc = disk(point, 10, shape=rgb.shape)
@@ -357,6 +358,12 @@ class KochRobot:
                       [17.46, 15, 8]]
         calibration_poses, calibration_coords = [], []
 
+        # Write video
+        coords, frame = cam_node.detect_end_effector()
+        height, width, _ = frame.shape
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can use 'XVID' for AVI
+        out = cv2.VideoWriter("calibration.mp4", fourcc, 20, (width, height))
+
         for final_position in move_poses:
             
             # Generate positions from current position to end position
@@ -368,17 +375,24 @@ class KochRobot:
 
             # Move end effector to goal
             print("Sending to goal...")
+            
             for i, g in enumerate(grad_poses):
                 time.sleep(0.02)
                 self.set_ee_pose(g, axis=0, steps=2)
 
                 # Get end-effector coordinates from the blue object
-                coords = cam_node.detect_end_effector()
+                coords, frame = cam_node.detect_end_effector()
                 calibration_coords += [coords]
-                calibration_poses += [grad_poses[i]]                
+                calibration_poses += [grad_poses[i]]
+
+                # Add frame and save video
+                out.write(frame)       
 
             print("Reached!")
             time.sleep(1)   # wait before capturing picture
+        
+        # Save video
+        out.release()
 
         calibration_poses = np.array(calibration_poses).reshape(-1,3).astype(np.float32)
         calibration_coords = np.array(calibration_coords).reshape(-1,2).astype(np.float32)

@@ -1,7 +1,0 @@
-def stage2_subgoal_constraint1(end_effector, keypoints):
-    """The eraser (keypoint 10) is above the center of the masking tape (keypoint 13)."""
-    masking_tape_position = keypoints[13]
-    offsetted_point = masking_tape_position + np.array([0, 0, 10])  # 10 cm above
-    cost = np.linalg.norm(keypoints[10] - offsetted_point)
-    return cost
-

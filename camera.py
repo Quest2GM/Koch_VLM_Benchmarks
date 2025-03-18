@@ -140,9 +140,9 @@ class ZEDCamera:
             x1, y1, x2, y2 = bbox
             frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
 
-        # cv2.imwrite("calib.png", frame)
+        cv2.imwrite("calib.png", frame)
 
-        return [int((x1 + x2) / 2), int((y1 + y2) / 2)]
+        return [int((x1 + x2) / 2), int((y1 + y2) / 2)], frame
 
 
     def capture_points(self):

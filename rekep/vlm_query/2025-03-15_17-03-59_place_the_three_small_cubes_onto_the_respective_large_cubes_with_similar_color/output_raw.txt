@@ -1,0 +1,67 @@
+```python
+# The task involves placing three small cubes onto the respective large cubes with similar colors.
+# There are six stages in total, two for each pair of cubes (grasp and place).
+
+num_stages = 6
+
+### stage 1 sub-goal constraints
+def stage1_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the small red cube (keypoint 6)."""
+    return np.linalg.norm(end_effector - keypoints[6])
+
+### stage 1 path constraints
+# No path constraints needed for grasping.
+
+### stage 2 sub-goal constraints
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """The small red cube (keypoint 6) is 10cm above the large red cube (keypoint 8)."""
+    offsetted_point = keypoints[8] + np.array([0, 0, 0.1])
+    return np.linalg.norm(keypoints[6] - offsetted_point)
+
+### stage 2 path constraints
+def stage2_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the small red cube (keypoint 6)."""
+    return get_grasping_cost_by_keypoint_idx(6)
+
+### stage 3 sub-goal constraints
+def stage3_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the small black cube (keypoint 9)."""
+    return np.linalg.norm(end_effector - keypoints[9])
+
+### stage 3 path constraints
+# No path constraints needed for grasping.
+
+### stage 4 sub-goal constraints
+def stage4_subgoal_constraint1(end_effector, keypoints):
+    """The small black cube (keypoint 9) is 10cm above the large black cube (keypoint 14)."""
+    offsetted_point = keypoints[14] + np.array([0, 0, 0.1])
+    return np.linalg.norm(keypoints[9] - offsetted_point)
+
+### stage 4 path constraints
+def stage4_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the small black cube (keypoint 9)."""
+    return get_grasping_cost_by_keypoint_idx(9)
+
+### stage 5 sub-goal constraints
+def stage5_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the small blue cube (keypoint 12)."""
+    return np.linalg.norm(end_effector - keypoints[12])
+
+### stage 5 path constraints
+# No path constraints needed for grasping.
+
+### stage 6 sub-goal constraints
+def stage6_subgoal_constraint1(end_effector, keypoints):
+    """The small blue cube (keypoint 12) is 10cm above the large blue cube (keypoint 5)."""
+    offsetted_point = keypoints[5] + np.array([0, 0, 0.1])
+    return np.linalg.norm(keypoints[12] - offsetted_point)
+
+### stage 6 path constraints
+def stage6_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the small blue cube (keypoint 12)."""
+    return get_grasping_cost_by_keypoint_idx(12)
+
+grasp_keypoints = [6, -1, 9, -1, 12, -1]
+
+release_keypoints = [-1, 6, -1, 9, -1, 12]
+```

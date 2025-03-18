@@ -25,6 +25,11 @@ from camera import ZEDCamera
 from vision_pipeline import SAM
 from configure_koch import KochRobot
 
+from openai import OpenAI
+import ast, time
+import cv2
+import threading
+from skimage.draw import disk, line
 
 class Main:
     def __init__(self, scene_file, visualize=False):
@@ -59,14 +64,24 @@ class Main:
 
         # initialize solvers
         reset_joint_pos = self.env.get_arm_joint_positions()
-        self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
+        self.subgoal_opt = False   # can choose to optimize subgoal or directly go to keypoint positions
         self.path_opt = False   # can choose to optimize path or directly interpolate to save time
+        if self.subgoal_opt:
+            self.subgoal_solver = SubgoalSolver(global_config['subgoal_solver'], ik_solver, reset_joint_pos)
         if self.path_opt:
             self.path_solver = PathSolver(global_config['path_solver'], ik_solver, reset_joint_pos)
         
         # initialize visualizer
         self.visualizer = Visualizer(global_config['visualizer'], self.env)
-        self.visualize = False
+        self.visualize = True
+
+        # OpenAI client
+        self.ai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+
+        self.terminate = False
+
+        self.video_save = []
+        self.subgoal_idxs = []
 
 
     def perform_task(self, instruction, rekep_program_dir=None, disturbance_seq=None):
@@ -88,10 +103,133 @@ class Main:
         # ====================================
         # = execute
         # ====================================
-        self._execute(rekep_program_dir, disturbance_seq)
+        # Create threads
+        thread1 = threading.Thread(target=self._execute, args=(rekep_program_dir,))
+        thread2 = threading.Thread(target=self._record_video)
+
+        # # Start threads
+        thread1.start()
+        thread2.start()
+
+        # # Wait until both threads complete
+        thread1.join()
+        thread2.join()
+
+        # Cleanup
+        self.robot.exit()
 
 
-    def _execute(self, rekep_program_dir, disturbance_seq=None):
+    def _get_all_subgoals(self, task_dir):
+
+        # save prompt
+        with open(os.path.join(task_dir, 'output_raw.txt'), 'r') as f:
+            prompt_1 = f.read()
+
+        prompt_2 = "Without providing any explanation, return an python integer \
+                    list that has the keypoint indices that the end-effector needs to be at \
+                    for each stage."
+            
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt_1 + ".\n" + prompt_2
+                    },
+                ]
+            }
+        ]
+
+        stream = self.ai_client.chat.completions.create(model='gpt-4o',
+                                                        messages=messages,
+                                                        temperature=0.0,
+                                                        max_tokens=2048,
+                                                        stream=True)
+        output = ""
+        start = time.time()
+        for chunk in stream:
+            print(f'[{time.time()-start:.2f}s] Querying OpenAI API...', end='\r')
+            if chunk.choices[0].delta.content is not None:
+                output += chunk.choices[0].delta.content
+        print(f'[{time.time()-start:.2f}s] Querying OpenAI API...Done')
+
+        output = output.replace("```", "").replace("python", "")
+
+        return ast.literal_eval(output)
+    
+
+    def _record_video(self):
+
+        # Functions to add point/line to image
+        def add_point_to_rgb(rgb, point, color=(255, 255, 0)):
+            rr, cc = disk(point, 20, shape=rgb.shape)
+            rgb[rr, cc] = color
+            return rgb
+        
+        def _project_keypoints_to_img(rgb):
+
+            projected = rgb.copy()
+
+            for idx in self.env._keypoint_registry:
+                kr = self.env._keypoint_registry[idx]
+                if kr["object"] != "none":
+                    pixel = kr["img_coord"]
+                    displayed_text = str(idx)
+                    text_length = len(displayed_text)
+                    # draw a box
+                    box_width = 30 + 10 * (text_length - 1)
+                    box_height = 30
+                    cv2.rectangle(projected, (pixel[1] - box_width // 2, pixel[0] - box_height // 2), (pixel[1] + box_width // 2, pixel[0] + box_height // 2), (255, 255, 255), -1)
+                    cv2.rectangle(projected, (pixel[1] - box_width // 2, pixel[0] - box_height // 2), (pixel[1] + box_width // 2, pixel[0] + box_height // 2), (0, 0, 0), 2)
+                    # draw text
+                    org = (pixel[1] - 7 * (text_length), pixel[0] + 7)
+                    color = (255, 0, 0)
+                    cv2.putText(projected, displayed_text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+            return projected
+        
+        def add_line_to_rgb(rgb, start, end, color=(0, 255, 0)):
+            rr, cc = line(start[0], start[1], end[0], end[1])
+            for r, c in zip(rr, cc):
+                rr_disk, cc_disk = disk((r, c), radius=5)
+                rgb[rr_disk, cc_disk] = color
+            return rgb
+
+        # Wait until subgoal idxs is filled
+        while len(self.subgoal_idxs) == 0:
+            continue
+        
+        # Record video
+        rgb = self.camera.capture_image("rgb")
+        height, width, _ = rgb.shape
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can use 'XVID' for AVI
+        out = cv2.VideoWriter("saved_video.mp4", fourcc, 20, (width, height))
+
+        while not self.terminate:
+            rgb = self.camera.capture_image("rgb")
+
+            # Get ee location
+            _, ee_point = self.robot.return_estimated_ee(self.camera)
+
+            # Add line between point stages
+            subgoal_point = self.env._keypoint_registry[self.subgoal_idxs[self.stage - 1]]["img_coord"]
+            rgb = add_line_to_rgb(rgb, ee_point, subgoal_point, color=(0, 255, 0))
+
+            # Add end effector point
+            rgb = add_point_to_rgb(rgb, ee_point, color=(255, 255, 0))
+            
+            # Add relevant keypoints
+            rgb = _project_keypoints_to_img(rgb)
+
+            out.write(rgb)
+
+        # Save video
+        out.release()
+        print(f"Video saved at saved_video.mp4!")
+
+
+    def _execute(self, rekep_program_dir):
         # load metadata
         with open(os.path.join(rekep_program_dir, 'metadata.json'), 'r') as f:
             self.program_info = json.load(f)
@@ -112,6 +250,9 @@ class Main:
         self.keypoint_movable_mask = np.zeros(self.program_info['num_keypoints'] + 1, dtype=bool)
         self.keypoint_movable_mask[0] = True  # first keypoint is always the ee, so it's movable
 
+        if not self.subgoal_opt:
+            self.subgoal_idxs = self._get_all_subgoals(rekep_program_dir)
+
         # main loop
         self._update_stage(1)
         while True:
@@ -125,9 +266,23 @@ class Main:
             # ====================================
             # = get optimized plan
             # ====================================
-            next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
-            print("Current pose:", self.robot.get_ee_pose()[0])
+            curr_pose = self.robot.get_ee_pose()[0]
+            print("Stage:", self.stage)
+            print("Current pose:", curr_pose)
+            if self.subgoal_opt:
+                next_subgoal = self._get_next_subgoal(from_scratch=self.first_iter)
+            else:
+                next_subgoal = np.concatenate([self.keypoints[self.subgoal_idxs[self.stage - 1] + 1], \
+                                               curr_pose[3:]])
+
+                # OFFSET CODE
+
+                grasp_offset = np.array([0, 0, 0])
+                subgoal_pose_homo = T.convert_pose_quat2mat(next_subgoal)
+                next_subgoal[:3] += subgoal_pose_homo[:3, :3] @ grasp_offset
+
             print("Next subgoal:", next_subgoal)
+            # input("waiting...")
 
             # Optimize path, otherwise do direct interpolation
             if self.path_opt:
@@ -135,7 +290,7 @@ class Main:
             else:
                 num_points = 100
                 next_path = np.zeros((num_points, 8))
-                goal_lin = np.linspace(self.robot.get_ee_pose()[0], next_subgoal, num=num_points)
+                goal_lin = np.linspace(curr_pose, next_subgoal, num=num_points)
                 next_path[:, :7] = goal_lin
 
             self.first_iter = False
@@ -155,6 +310,7 @@ class Main:
             # End condition
             if self.stage == self.program_info['num_stages']: 
                 self.env.sleep(2.0)
+                self.terminate = True
                 print("Finished!")
                 return
 
@@ -243,9 +399,9 @@ class Main:
 
     def _execute_grasp_action(self):
         pregrasp_pose = self.env.get_ee_pose()
-        grasp_pose = pregrasp_pose.copy()
-        grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ np.array([self.config['grasp_depth'], 0, 0])
-        grasp_action = np.concatenate([grasp_pose, [self.env.get_gripper_close_action()]])
+        # grasp_pose = pregrasp_pose.copy()
+        # grasp_pose[:3] += T.quat2mat(pregrasp_pose[3:]) @ np.array([self.config['grasp_depth'], 0, 0])
+        grasp_action = np.concatenate([pregrasp_pose, [self.env.get_gripper_close_action()]])
         grasp_action = grasp_action.reshape(1, -1)
         self.env.execute_action(grasp_action, precise=True)
     
@@ -260,13 +416,23 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     task_list = {
-        'pen': {
+        'eraser': {
             'scene_file': './configs/og_scene_file_red_pen.json',
             'instruction': 'pick up eraser and drop it into the masking tape',
-            'rekep_program_dir': './rekep/vlm_query/2025-01-31_16-19-13_pick_up_eraser_and_drop_it_into_the_masking_tape'
+            'rekep_program_dir': './rekep/vlm_query/2025-03-16_19-54-00_pick_up_eraser_and_drop_it_into_the_masking_tape'
             },
+        'chess': {
+            'scene_file': './configs/og_scene_file_red_pen.json',
+            'instruction': 'place the white king and black king into the box. choose one keypoint for the box',
+            'rekep_program_dir': './rekep/vlm_query/2025-03-16_17-16-45_place_the_white_king_and_black_king_into_the_box._choose_one_keypoint_for_the_box'
+            },
+        'stack': {
+            'scene_file': './configs/og_scene_file_red_pen.json',
+            'instruction': 'place the three small cubes onto the respective large cubes with similar color',
+            'rekep_program_dir': './rekep/vlm_query/2025-03-15_17-03-59_place_the_three_small_cubes_onto_the_respective_large_cubes_with_similar_color'
+        },
     }
-    task = task_list['pen']
+    task = task_list['eraser']
     scene_file = task['scene_file']
     instruction = task['instruction']
     main = Main(scene_file, visualize=args.visualize)

@@ -1,0 +1,34 @@
+```python
+# The task involves picking up an eraser and dropping it into the masking tape.
+# This can be broken down into two stages:
+# 1. Grasp the eraser.
+# 2. Drop the eraser into the masking tape.
+
+num_stages = 2
+
+### stage 1 sub-goal constraints
+def stage1_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the eraser (keypoint 3)."""
+    eraser_position = keypoints[3]
+    cost = np.linalg.norm(end_effector - eraser_position)
+    return cost
+
+### stage 1 path constraints
+# No path constraints needed for grasping.
+
+### stage 2 sub-goal constraints
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """The eraser (keypoint 3) is inside the masking tape (keypoint 8)."""
+    masking_tape_position = keypoints[8]
+    eraser_position = keypoints[3]
+    cost = np.linalg.norm(eraser_position - masking_tape_position)
+    return cost
+
+### stage 2 path constraints
+def stage2_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the eraser (keypoint 3)."""
+    return get_grasping_cost_by_keypoint_idx(3)
+
+grasp_keypoints = [3, -1]
+release_keypoints = [-1, 3]
+```
