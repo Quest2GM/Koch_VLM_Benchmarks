@@ -25,8 +25,17 @@ To simplify the forward and inverse kinematics, I set θ₄=π/2. This is good e
 ## Sample Demos
 ### [ReKep](https://rekep-robot.github.io/)
 
+#### Experiment 1: Eraser into Tape
+https://github.com/user-attachments/assets/99434062-c455-40b1-b682-657e4cad514d
+
+#### Experiment 2: Chess
+https://github.com/user-attachments/assets/2dc40533-c974-455f-9675-3e68a79441fe
+
+#### Experiment 3: Block Stacking
+https://github.com/user-attachments/assets/f0b55d51-8e67-4500-9fd6-8f15c189fb1c
 
 
-https://github.com/user-attachments/assets/d2eddebe-d53b-4147-abc2-43f6c37460cf
+
+
 
 
