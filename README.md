@@ -27,6 +27,8 @@ For all experiments, a single ZED mini stereo camera was positioned across from 
 
 The Perspective-n-Point (PnP) pose computation (`cv2.solvePnP`) was used to calculate the rotation and translation matrices between the camera frame and the robot/world frame. A blue object, held by the robot's end-effector, was tracked across the image to obtain pixel coordinates. The corresponding world coordinates were derived using inverse kinematics. See video below:
 
+https://github.com/user-attachments/assets/acdfefd9-b190-459c-8ed2-c6aaa87b24a0
+
 ## Demonstrations
 
 ### [ReKep](https://rekep-robot.github.io/)
