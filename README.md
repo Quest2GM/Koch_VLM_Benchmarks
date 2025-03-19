@@ -33,6 +33,8 @@ https://github.com/user-attachments/assets/acdfefd9-b190-459c-8ed2-c6aaa87b24a0
 
 ### [ReKep](https://rekep-robot.github.io/)
 
+Due to limited computational resources, I did not do collision checking.
+
 #### Experiment 1: Eraser into Tape
 https://github.com/user-attachments/assets/99434062-c455-40b1-b682-657e4cad514d
 
