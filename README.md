@@ -22,7 +22,13 @@ To simplify the forward and inverse kinematics, I set θ₄=π/2. This is good e
 ### Inverse Kinematics
 <img src="images/inv_kin.png" alt="inv_kin">
 
-## Sample Demos
+### Experiment Setup
+For all experiments, a single ZED mini stereo camera was positioned across from the Koch v1.1 manipulator, ensuring that it had a clear view of the manipulator's workspace.
+
+The Perspective-n-Point (PnP) pose computation (`cv2.solvePnP`) was used to calculate the rotation and translation matrices between the camera frame and the robot/world frame. A blue object, held by the robot's end-effector, was tracked across the image to obtain pixel coordinates. The corresponding world coordinates were derived using inverse kinematics. See video below:
+
+## Demonstrations
+
 ### [ReKep](https://rekep-robot.github.io/)
 
 #### Experiment 1: Eraser into Tape
