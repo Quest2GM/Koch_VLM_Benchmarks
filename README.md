@@ -7,16 +7,16 @@ Note: The koch v1-1 has only 5DoF, which may be limiting for more complex experi
 ## Koch v1.1 Manipulator
 Please follow the build instructions found on the [original repository](https://github.com/jess-moss/koch-v1-1?tab=readme-ov-file#assembly-instructions). Additionally, follow the [lerobot example](https://github.com/huggingface/lerobot/blob/main/examples/7_get_started_with_real_robot.md) for running the code.
 
-To simplify the forward and inverse kinematics, I set θ₄=π/2. This is good enough to achieve most pick-and-place tasks.
+To simplify the forward and inverse kinematics, I set ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_4=\pi/2). This is good enough to achieve most pick-and-place tasks.
 
 ### DH Table
 | Joint | a (Link Length) | α (Twist) | d (Offset) | θ (Joint Angle) | Joint Limits (rad) |
 |-------|----------------|-----------|------------|----------------|---------------------|
-| 1     | 0             | -π/2      | d_1 = 5.5        | θ₁            | [-π/2, π/2]        |
-| 2     | a_2 = 10.68         | 0         | 0          | θ₂            | [0, π/2]           |
-| 3     | a_3 = 10           | 0         | 0          | θ₃            | [-π/2, π/2]        |
-| 4     | 0             | π/2       | 0          | π/2            | [-π/2, π/2]        |
-| 5     | 0             | 0         | d_5 = 10.5       | θ₅            | [-π, π]            |
+| 1     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)             | ![LaTeX Equation](https://latex.codecogs.com/svg.image?-\frac{\pi}{2})      | ![LaTeX Equation](https://latex.codecogs.com/svg.image?d_1=5.5)        | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_1)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[-\frac{\pi}{2},\frac{\pi}{2}\right])        |
+| 2     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?a_2=10.68)         | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)         | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)          | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_2)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[0,\frac{\pi}{2}\right])           |
+| 3     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?a_3=10)           | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)         | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)          | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_3)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[-\frac{\pi}{2},\frac{\pi}{2}\right])        |
+| 4     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)             | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\frac{\pi}{2})       | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)          | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\frac{\pi}{2})            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[-\frac{\pi}{2},\frac{\pi}{2}\right])        |
+| 5     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)         | ![LaTeX Equation](https://latex.codecogs.com/svg.image?d_5=10.5)       | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_5)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[-\pi,\pi\right])            |
 
 
 ### Inverse Kinematics
