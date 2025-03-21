@@ -10,7 +10,7 @@ Please follow the build instructions found on the [original repository](https://
 To simplify the forward and inverse kinematics, I set ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_4=\pi/2). This is good enough to achieve most pick-and-place tasks.
 
 ### DH Table
-| Joint | a (Link Length) | α (Twist) | d (Offset) | θ (Joint Angle) | Joint Limits (rad) |
+| Joint | ![LaTeX Equation](https://latex.codecogs.com/svg.image?a) (Link Length) | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\alpha) (Twist) | ![LaTeX Equation](https://latex.codecogs.com/svg.image?d) (Offset) | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta) (Joint Angle) | Joint Limits (rad) |
 |-------|----------------|-----------|------------|----------------|---------------------|
 | 1     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)             | ![LaTeX Equation](https://latex.codecogs.com/svg.image?-\frac{\pi}{2})      | ![LaTeX Equation](https://latex.codecogs.com/svg.image?d_1=5.5)        | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_1)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[-\frac{\pi}{2},\frac{\pi}{2}\right])        |
 | 2     | ![LaTeX Equation](https://latex.codecogs.com/svg.image?a_2=10.68)         | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)         | ![LaTeX Equation](https://latex.codecogs.com/svg.image?0)          | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\theta_2)            | ![LaTeX Equation](https://latex.codecogs.com/svg.image?\left[0,\frac{\pi}{2}\right])           |
